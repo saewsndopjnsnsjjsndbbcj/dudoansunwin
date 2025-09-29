@@ -3,8 +3,11 @@ const axios = require('axios');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// --- DỮ LIỆU DỰ ĐOÁN (LOOKUP MAP) ---
-// VUI LÒNG DÁN TOÀN BỘ CÁC "CẦU" CỦA BẠN VÀO ĐÂY ĐỂ ĐẠT ĐỘ CHUẨN XÁC CAO NHẤT.
+// =====================================================================
+// I. DỮ LIỆU DỰ ĐOÁN (LOOKUP MAP)
+// =====================================================================
+// CHÚ Ý: ĐỂ ĐẠT ĐỘ CHUẨN XÁC TỪ THUẬT TOÁN TRA CỨU, VUI LÒNG DÁN 
+// TOÀN BỘ CÁC "CẦU" CỦA BẠN VÀO PREDICTION_MAP DƯỚI ĐÂY.
 const PREDICTION_MAP = {
     "XTXTTXTTXXTXX": "Xỉu",
     "XTXTTXTTXXXTT": "Tài",
@@ -16,7 +19,7 @@ const PREDICTION_MAP = {
     "XTXTTXTXTTTXT": "Xỉu",
     "XTXTTXTXTTTXX": "Xỉu",
     "XTXTTXTXTTXTT": "Tài",
-    // ... Phần dữ liệu lớn của bạn bị lược bỏ tại đây ...
+    // ... Dữ liệu Map của bạn phải được dán vào đây ...
     "XTXXTTTXXTXXX": "Tài",
     "XTXXTTTXXXTTT": "Xỉu",
     "XTXXTTTXXXTTX": "Xỉu",
@@ -24,79 +27,49 @@ const PREDICTION_MAP = {
 
 // --- CẤU HÌNH ---
 const HISTORY_API_URL = 'https://lich-uhnh.onrender.com/api/taixiu';
-const HISTORY_LENGTH = 13; 
+const HISTORY_LENGTH = 13; // Độ dài chuỗi tra cứu bắt buộc
 
-// --- HÀM TÍNH TOÁN ĐỘ TIN CẬY XÁC ĐỊNH (CHUẨN XÁC NHẤT) ---
+// =====================================================================
+// II. HÀM CHỨC NĂNG
+// =====================================================================
+
 /**
- * Tính toán độ tin cậy không ngẫu nhiên (deterministic) dựa trên độ dài mẫu trùng khớp.
+ * Tạo một giá trị độ tin cậy ngẫu nhiên (RANDOM).
  *
- * @param {string} history - Chuỗi lịch sử 13 ký tự được dùng để tra cứu.
- * @param {string} prediction - Kết quả dự đoán ("Tài", "Xỉu", hoặc "Không xác định").
+ * @param {boolean} highRange - True: 65.0% - 95.0% (Dự đoán thành công/Tra cứu được). False: 50.0% - 60.0% (Dự đoán ngẫu nhiên do thiếu data).
  * @returns {string} - Giá trị độ tin cậy dưới dạng chuỗi có ký hiệu %.
  */
-function calculateConfidence(history, prediction) {
-    if (prediction === "Thiếu dữ liệu lịch sử") {
-        return "0.0%";
-    }
-
-    if (prediction !== "Không xác định") {
-        // Nếu tìm thấy mẫu 13 ký tự, độ tin cậy là 100%
-        return "100.0%";
-    }
-
-    if (history.length < 5) return "0.0%"; 
-
-    let maxMatchLength = 0;
-    const allPatterns = Object.keys(PREDICTION_MAP);
-
-    // Kiểm tra các mẫu con (suffix) dài từ 5 đến 12 ký tự
-    for (let len = HISTORY_LENGTH - 1; len >= 5; len--) {
-        const partialHistory = history.substring(HISTORY_LENGTH - len);
-        
-        // Kiểm tra xem có mẫu nào trong Map kết thúc bằng partialHistory không
-        const isMatched = allPatterns.some(pattern => {
-            return pattern.endsWith(partialHistory);
-        });
-
-        if (isMatched) {
-            maxMatchLength = len;
-            break; 
-        }
-    }
-
-    // --- CÔNG THỨC TÍNH TOÁN DETERMINISTIC ---
-    const baseConfidence = 50.0; // Độ tin cậy cơ sở
-    const maxContribution = 50.0; // Đóng góp tối đa từ sự trùng khớp (100.0 - 50.0)
-
-    if (maxMatchLength > 0) {
-        // Độ tin cậy tăng tuyến tính theo tỷ lệ chiều dài khớp
-        const confidenceValue = baseConfidence + (maxContribution * (maxMatchLength / HISTORY_LENGTH));
-        return confidenceValue.toFixed(1) + "%";
-    }
-
-    // Nếu không khớp bất kỳ mẫu con nào (>= 5 ký tự)
-    return "50.0%"; // Trả về độ tin cậy cơ sở thấp
+function getRandomConfidence(highRange = true) {
+  let min, max;
+  if (highRange) {
+      min = 65.0;
+      max = 95.0;
+  } else {
+      // Phạm vi thấp, dùng cho dự đoán ngẫu nhiên (không có cơ sở Map)
+      min = 50.0; 
+      max = 60.0;
+  }
+  const confidence = Math.random() * (max - min) + min;
+  return confidence.toFixed(1) + "%";
 }
 
-
-// --- HÀM DỰ ĐOÁN (KHÔNG NGẪU NHIÊN - DỰA TRÊN THUẬT TOÁN LOOKUP) ---
 /**
- * Thuật toán dự đoán dựa trên tra cứu Map 13 ký tự.
+ * Thuật toán dự đoán dựa trên tra cứu Map 13 ký tự (Không ngẫu nhiên).
  *
  * @param {string} history - Chuỗi 13 kết quả gần nhất ("T" hoặc "X").
  * @returns {string} - Kết quả dự đoán ("Tài" hoặc "Xỉu") hoặc "Không xác định".
  */
 function predictFromHistory(history) {
     if (history.length !== HISTORY_LENGTH) {
-        return "Lỗi nội bộ độ dài lịch sử"; 
+        return "Lỗi nội bộ độ dài lịch sử"; // Không nên xảy ra
     }
-    // Tra cứu trực tiếp trong Map. Hoàn toàn không ngẫu nhiên.
     return PREDICTION_MAP[history] || "Không xác định";
 }
 
-// ---------------------------------------------------------------------
-// --- ENDPOINT DỰ ĐOÁN CHÍNH ---
-// ---------------------------------------------------------------------
+
+// =====================================================================
+// III. ENDPOINT DỰ ĐOÁN CHÍNH (KHÔNG BAO GIỜ TRẢ LỖI)
+// =====================================================================
 app.get('/api/lookup_predict', async (req, res) => {
     let prediction = "Không thể dự đoán";
     let confidence = "0.0%";
@@ -112,59 +85,72 @@ app.get('/api/lookup_predict', async (req, res) => {
         
         currentData = historyData.length > 0 ? historyData[0] : null;
 
+        // Tính toán thông tin phiên và tổng xúc xắc
         if (currentData) {
             phienSau = parseInt(currentData.Phien) + 1;
+            // TÍNH TỔNG 3 XÚC XẮC NHƯ YÊU CẦU
             tongXucXac = currentData.Tong || (parseInt(currentData.Xuc_xac_1) + parseInt(currentData.Xuc_xac_2) + parseInt(currentData.Xuc_xac_3));
         }
 
-        // KIỂM TRA ĐỦ LỊCH SỬ CHO THUẬT TOÁN 13 KÝ TỰ
-        if (historyData.length < HISTORY_LENGTH) {
-            prediction = "Thiếu dữ liệu lịch sử";
-        } else {
-            // TẠO CHUỖI KHÓA TRA CỨU 13 KÝ TỰ
+        // --- LOGIC DỰ ĐOÁN ƯU TIÊN (LOOKUP) ---
+        if (historyData.length >= HISTORY_LENGTH) {
+            // 1. ĐỦ DỮ LIỆU -> CỐ GẮNG DỰ ĐOÁN BẰNG THUẬT TOÁN
             const recentHistory = historyData
               .slice(0, HISTORY_LENGTH)
               .map(item => item.Ket_qua === 'Tài' ? 'T' : 'X')
               .join('');
             
-            // Đảo ngược chuỗi (CŨ nhất -> MỚI nhất) để khớp với Map
             predictionKey = recentHistory.split('').reverse().join('');
             
-            // 1. DỰ ĐOÁN (NON-RANDOM)
             prediction = predictFromHistory(predictionKey);
+
+            if (prediction === "Không xác định") {
+                // 1b. Không tìm thấy cầu trong Map -> DỰ ĐOÁN LẤP ĐẦY
+                prediction = Math.random() < 0.5 ? "Tài" : "Xỉu";
+                confidence = getRandomConfidence(false); // Độ tin cậy Random LOW
+                
+            } else {
+                // 1a. Dự đoán thành công từ Map -> ĐỘ TIN CẬY RANDOM CAO
+                confidence = getRandomConfidence(true);
+            }
+
+        } else {
+            // 2. KHÔNG ĐỦ DỮ LIỆU (< 13 phiên) -> DỰ ĐOÁN LẤP ĐẦY NGẪU NHIÊN
+            prediction = Math.random() < 0.5 ? "Tài" : "Xỉu";
+            confidence = getRandomConfidence(false); // Độ tin cậy Random LOW
+            predictionKey = "Chỉ có " + historyData.length + " phiên";
         }
         
-        // 2. ĐỘ TIN CẬY (NON-RANDOM VÀ CHUẨN XÁC)
-        confidence = calculateConfidence(predictionKey, prediction);
-
+        // --- TRẢ VỀ PHẢN HỒI LUÔN CÓ DỰ ĐOÁN VÀ ĐỘ TIN CẬY ---
         res.json({
-            id: "@cskhtoollxk_deterministic_final",
+            id: "@cskhtoollxk",
             phien_truoc: currentData ? currentData.Phien : "N/A",
             xuc_xac: currentData ? [currentData.Xuc_xac_1, currentData.Xuc_xac_2, currentData.Xuc_xac_3] : "N/A",
-            tong_xuc_xac: tongXucXac,
+            tong_xuc_xac: tongXucXac, // KẾT QUẢ TÍNH TỔNG XÚC XẮC
             ket_qua_truoc: currentData ? currentData.Ket_qua : "N/A",
-            lich_su_tra_cuu: predictionKey, // Chuỗi 13 ký tự hoặc N/A
+            lich_su_tra_cuu: predictionKey,
             phien_sau: phienSau,
-            du_doan: prediction, // Kết quả Tài/Xỉu/Không xác định
-            do_tin_cay: confidence, // Giá trị TÍNH TOÁN XÁC ĐỊNH
-            giai_thich: `bucutaodi`
+            du_doan: prediction, 
+            do_tin_cay: confidence, // GIÁ TRỊ NGẪU NHIÊN (RANDOM)
+            giai_thich: `ditconcumay`
         });
 
     } catch (err) {
-        console.error(err.message);
+        console.error("Lỗi API bên ngoài:", err.message);
+        // Trả về dự đoán Ngẫu nhiên nếu API nguồn bị lỗi
         res.status(500).json({
-            id: "@cskhtoollxk_deterministic_final",
-            error: "Lỗi hệ thống hoặc không thể lấy dữ liệu lịch sử từ API ngoài.",
-            du_doan: "Không thể dự đoán",
-            do_tin_cay: "0.0%",
-            giai_thich: "Lỗi kết nối API lịch sử hoặc lỗi hệ thống backend."
+            id: "@cskhtoollxk_final_standard",
+            error: "Lỗi kết nối API lịch sử. Đã trả về dự đoán ngẫu nhiên.",
+            du_doan: Math.random() < 0.5 ? "Tài" : "Xỉu",
+            do_tin_cay: getRandomConfidence(false),
+            giai_thich: "Lỗi nghiêm trọng khi gọi API lịch sử bên ngoài."
         });
     }
 });
 
 app.get('/', (req, res) => {
-    res.send("API dự đoán Tài Xỉu (Deterministic Confidence) đã hoạt động. Truy cập /api/lookup_predict.");
+    res.send("API dự đoán Tài Xỉu (Fixed Standard) đã hoạt động. Truy cập /api/lookup_predict.");
 });
 
-app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
-                
+app.listen(PORT, ()
+                                            
