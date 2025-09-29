@@ -1,157 +1,520 @@
 const express = require('express');
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// --- DỮ LIỆU DỰ ĐOÁN TỪ INPUT CỦA BẠN (Dự đoán KHÔNG NGẪU NHIÊN) ---
+const PREDICTION_MAP = {
+    "XTXTTXTTXXTXX": "Xỉu",
+    "XTXTTXTTXXXTT": "Tài",
+    "XTXTTXTTXXXTX": "Tài",
+    "XTXTTXTTXXXXT": "Xỉu",
+    "XTXTTXTTXXXXX": "Xỉu",
+    "XTXTTXTXTTTTT": "Tài",
+    "XTXTTXTXTTTTX": "Tài",
+    "XTXTTXTXTTTXT": "Xỉu",
+    "XTXTTXTXTTTXX": "Xỉu",
+    "XTXTTXTXTTXTT": "Tài",
+    "XTXTTXTXTTXTX": "Tài",
+    "XTXTTXTXTTXXT": "Xỉu",
+    "XTXTTXTXTTXXX": "Xỉu",
+    "XTXTTXTXTXTTT": "Xỉu",
+    "XTXTTXTXTXTTX": "Xỉu",
+    "XTXTTXTXTXTXT": "Xỉu",
+    "XTXTTXTXTXTXX": "Xỉu",
+    "XTXTTXTXTXXTT": "Tài",
+    "XTXTTXTXTXXTX": "Tài",
+    "XTXTTXTXTXXXT": "Xỉu",
+    "XTXTTXTXTXXXX": "Xỉu",
+    "XTXTTXTXXTTTT": "Tài",
+    "XTXTTXTXXTTTX": "Tài",
+    "XTXTTXTXXTTXT": "Xỉu",
+    "XTXTTXTXXTTXX": "Xỉu",
+    "XTXTTXTXXTXTT": "Tài",
+    "XTXTTXTXXTXTX": "Tài",
+    "XTXTTXTXXTXXT": "Tài",
+    "XTXTTXTXXTXXX": "Tài",
+    "XTXTTXTXXXTTT": "Tài",
+    "XTXTTXTXXXTTX": "Xỉu",
+    "XTXTTXTXXXTXT": "Xỉu",
+    "XTXTTXTXXXTXX": "Xỉu",
+    "XTXTTXTXXXXTT": "Tài",
+    "XTXTTXTXXXXTX": "Tài",
+    "XTXTTXTXXXXXT": "Xỉu",
+    "XTXTTXTXXXXXX": "Xỉu",
+    "XTXTTXXTTTTTT": "Tài",
+    "XTXTTXXTTTTTX": "Tài",
+    "XTXTTXXTTTTXT": "Xỉu",
+    "XTXTTXXTTTTXX": "Xỉu",
+    "XTXTTXXTTTXTT": "Tài",
+    "XTXTTXXTTTXTX": "Tài",
+    "XTXTTXXTTTXXT": "Xỉu",
+    "XTXTTXXTTTXXX": "Tài",
+    "XTXTTXXTTXTTT": "Xỉu",
+    "XTXTTXXTTXTTX": "Xỉu",
+    "XTXTTXXTTXTXT": "Xỉu",
+    "XTXTTXXTTXTXX": "Xỉu",
+    "XTXTTXXTTXXTT": "Tài",
+    "XTXTTXXTTXXTX": "Tài",
+    "XTXTTXXTTXXXT": "Xỉu",
+    "XTXTTXXTTXXXX": "Xỉu",
+    "XTXTTXXTXTTTT": "Tài",
+    "XTXTTXXTXTTTX": "Tài",
+    "XTXTTXXTXTTXT": "Xỉu",
+    "XTXTTXXTXTTXX": "Xỉu",
+    "XTXTTXXTXTXTT": "Tài",
+    "XTXTTXXTXTXTX": "Tài",
+    "XTXTTXXTXTXXT": "Tài",
+    "XTXTTXXTXTXXX": "Xỉu",
+    "XTXTTXXTXXTTT": "Xỉu",
+    "XTXTTXXTXXTTX": "Xỉu",
+    "XTXTTXXTXXTXT": "Xỉu",
+    "XTXTTXXTXXTXX": "Xỉu",
+    "XTXTTXXTXXXTT": "Tài",
+    "XTXTTXXTXXXTX": "Tài",
+    "XTXTTXXTXXXXT": "Xỉu",
+    "XTXTTXXTXXXXX": "Xỉu",
+    "XTXTTXXXTTTTT": "Tài",
+    "XTXTTXXXTTTTX": "Tài",
+    "XTXTTXXXTTTXT": "Xỉu",
+    "XTXTTXXXTTTXX": "Xỉu",
+    "XTXTTXXXTTXTT": "Tài",
+    "XTXTTXXXTTXTX": "Tài",
+    "XTXTTXXXTTXXT": "Tài",
+    "XTXTTXXXTTXXX": "Xỉu",
+    "XTXTTXXXTXTTT": "Xỉu",
+    "XTXTTXXXTXTTX": "Tài",
+    "XTXTTXXXTXTXT": "Xỉu",
+    "XTXTTXXXTXTXX": "Xỉu",
+    "XTXTTXXXTXXTT": "Tài",
+    "XTXTTXXXTXXTX": "Tài",
+    "XTXTTXXXTXXXT": "Xỉu",
+    "XTXTTXXXTXXXX": "Tài",
+    "XTXTTXXXXTTTT": "Tài",
+    "XTXTTXXXXTTTX": "Tài",
+    "XTXTTXXXXTTXT": "Xỉu",
+    "XTXTTXXXXTTXX": "Xỉu",
+    "XTXTTXXXXTXTT": "Tài",
+    "XTXTTXXXXTXTX": "Tài",
+    "XTXTTXXXXTXXT": "Tài",
+    "XTXTTXXXXTXXX": "Tài",
+    "XTXTTXXXXXTTT": "Tài",
+    "XTXTTXXXXXTTX": "Xỉu",
+    "XTXTTXXXXXTXT": "Xỉu",
+    "XTXTTXXXXXTXX": "Xỉu",
+    "XTXTTXXXXXXTT": "Tài",
+    "XTXTTXXXXXXTX": "Tài",
+    "XTXTTXXXXXXXT": "Xỉu",
+    "XTXTTXXXXXXXX": "Xỉu",
+    "XTXTXTTTTTTTT": "Tài",
+    "XTXTXTTTTTTTX": "Tài",
+    "XTXTXTTTTTTXT": "Xỉu",
+    "XTXTXTTTTTTXX": "Xỉu",
+    "XTXTXTTTTTXTT": "Tài",
+    "XTXTXTTTTTXTX": "Tài",
+    "XTXTXTTTTTXXT": "Xỉu",
+    "XTXTXTTTTTXXX": "Tài",
+    "XTXTXTTTTXTTT": "Xỉu",
+    "XTXTXTTTTXTTX": "Xỉu",
+    "XTXTXTTTTXTXT": "Xỉu",
+    "XTXTXTTTTXTXX": "Xỉu",
+    "XTXTXTTTTXXTT": "Tài",
+    "XTXTXTTTTXXTX": "Tài",
+    "XTXTXTTTTXXXT": "Xỉu",
+    "XTXTXTTTTXXXX": "Xỉu",
+    "XTXTXTTTXTTTT": "Tài",
+    "XTXTXTTTXTTTX": "Tài",
+    "XTXTXTTTXTTXT": "Xỉu",
+    "XTXTXTTTXTTXX": "Xỉu",
+    "XTXTXTTTXTXTT": "Tài",
+    "XTXTXTTTXTXTX": "Tài",
+    "XTXTXTTTXTXXT": "Xỉu",
+    "XTXTXTTTXTXXX": "Xỉu",
+    "XTXTXTTTXXTTT": "Xỉu",
+    "XTXTXTTTXXTTX": "Tài",
+    "XTXTXTTTXXTXT": "Xỉu",
+    "XTXTXTTTXXTXX": "Xỉu",
+    "XTXTXTTTXXXTT": "Tài",
+    "XTXTXTTTXXXTX": "Tài",
+    "XTXTXTTTXXXXT": "Xỉu",
+    "XTXTXTTTXXXXX": "Xỉu",
+    "XTXTXTTXTTTTT": "Tài",
+    "XTXTXTTXTTTTX": "Tài",
+    "XTXTXTTXTTTXT": "Xỉu",
+    "XTXTXTTXTTTXX": "Xỉu",
+    "XTXTXTTXTTXTT": "Tài",
+    "XTXTXTTXTTXTX": "Tài",
+    "XTXTXTTXTTXXT": "Xỉu",
+    "XTXTXTTXTTXXX": "Xỉu",
+    "XTXTXTTXTXTTT": "Xỉu",
+    "XTXTXTTXTXTTX": "Xỉu",
+    "XTXTXTTXTXTXT": "Xỉu",
+    "XTXTXTTXTXTXX": "Xỉu",
+    "XTXTXTTXTXXTT": "Tài",
+    "XTXTXTTXTXXTX": "Tài",
+    "XTXTXTTXTXXXT": "Xỉu",
+    "XTXTXTTXTXXXX": "Tài",
+    "XTXTXTTXXTTTT": "Tài",
+    "XTXTXTTXXTTTX": "Tài",
+    "XTXTXTTXXTTXT": "Xỉu",
+    "XTXTXTTXXTTXX": "Xỉu",
+    "XTXTXTTXXTXTT": "Tài",
+    "XTXTXTTXXTXTX": "Tài",
+    "XTXTXTTXXTXXT": "Tài",
+    "XTXTXTTXXTXXX": "Xỉu",
+    "XTXTXTTXXXTTT": "Xỉu",
+    "XTXTXTTXXXTTX": "Xỉu",
+    "XTXTXTTXXXTXT": "Xỉu",
+    "XTXTXTTXXXTXX": "Xỉu",
+    "XTXTXTTXXXXTT": "Tài",
+    "XTXTXTTXXXXTX": "Tài",
+    "XTXTXTTXXXXXT": "Xỉu",
+    "XTXTXTTXXXXXX": "Xỉu",
+    "XTXTXTXTTTTTT": "Tài",
+    "XTXTXTXTTTTTX": "Tài",
+    "XTXTXTXTTTTXT": "Xỉu",
+    "XTXTXTXTTTTXX": "Xỉu",
+    "XTXTXTXTTTXTT": "Tài",
+    "XTXTXTXTTTXTX": "Tài",
+    "XTXTXTXTTTXXT": "Xỉu",
+    "XTXTXTXTTTXXX": "Xỉu",
+    "XTXTXTXTTXTTT": "Xỉu",
+    "XTXTXTXTTXTTX": "Xỉu",
+    "XTXTXTXTTXTXT": "Xỉu",
+    "XTXTXTXTTXTXX": "Xỉu",
+    "XTXTXTXTTXXTT": "Tài",
+    "XTXTXTXTTXXTX": "Tài",
+    "XTXTXTXTTXXXT": "Xỉu",
+    "XTXTXTXTTXXXX": "Tài",
+    "XTXTXTXTXTTTT": "Xỉu",
+    "XTXTXTXTXTTTX": "Tài",
+    "XTXTXTXTXTTXT": "Xỉu",
+    "XTXTXTXTXTTXX": "Xỉu",
+    "XTXTXTXTXTXTT": "Tài",
+    "XTXTXTXTXTXTX": "Tài",
+    "XTXTXTXTXTXXT": "Tài",
+    "XTXTXTXTXTXXX": "Tài",
+    "XTXTXTXTXXTTT": "Xỉu",
+    "XTXTXTXTXXTTX": "Tài",
+    "XTXTXTXTXXTXT": "Xỉu",
+    "XTXTXTXTXXTXX": "Xỉu",
+    "XTXTXTXTXXXTT": "Tài",
+    "XTXTXTXTXXXTX": "Tài",
+    "XTXTXTXTXXXXT": "Xỉu",
+    "XTXTXTXTXXXXX": "Xỉu",
+    "XTXTXTXXTTTTT": "Tài",
+    "XTXTXTXXTTTTX": "Tài",
+    "XTXTXTXXTTTXT": "Xỉu",
+    "XTXTXTXXTTTXX": "Xỉu",
+    "XTXTXTXXTTXTT": "Tài",
+    "XTXTXTXXTTXTX": "Tài",
+    "XTXTXTXXTTXXT": "Xỉu",
+    "XTXTXTXXTTXXX": "Tài",
+    "XTXTXTXXTXTTT": "Xỉu",
+    "XTXTXTXXTXTTX": "Tài",
+    "XTXTXTXXTXTXT": "Xỉu",
+    "XTXTXTXXTXTXX": "Xỉu",
+    "XTXTXTXXTXXTT": "Tài",
+    "XTXTXTXXTXXTX": "Tài",
+    "XTXTXTXXTXXXT": "Xỉu",
+    "XTXTXTXXTXXXX": "Xỉu",
+    "XTXTXTXXXTTTT": "Xỉu",
+    "XTXTXTXXXTTTX": "Tài",
+    "XTXTXTXXXTTXT": "Xỉu",
+    "XTXTXTXXXTTXX": "Xỉu",
+    "XTXTXTXXXTXTT": "Tài",
+    "XTXTXTXXXTXTX": "Tài",
+    "XTXTXTXXXTXXT": "Xỉu",
+    "XTXTXTXXXTXXX": "Tài",
+    "XTXTXTXXXXTTT": "Tài",
+    "XTXTXTXXXXTTX": "Xỉu",
+    "XTXTXTXXXXTXT": "Xỉu",
+    "XTXTXTXXXXTXX": "Xỉu",
+    "XTXTXTXXXXXTT": "Tài",
+    "XTXTXTXXXXXTX": "Tài",
+    "XTXTXTXXXXXXT": "Xỉu",
+    "XTXTXTXXXXXXX": "Xỉu",
+    "XTXTXXTTTTTTT": "Tài",
+    "XTXTXXTTTTTTX": "Tài",
+    "XTXTXXTTTTTXT": "Xỉu",
+    "XTXTXXTTTTTXX": "Xỉu",
+    "XTXTXXTTTTXTT": "Tài",
+    "XTXTXXTTTTXTX": "Tài",
+    "XTXTXXTTTTXXT": "Xỉu",
+    "XTXTXXTTTTXXX": "Xỉu",
+    "XTXTXXTTTXTTT": "Xỉu",
+    "XTXTXXTTTXTTX": "Tài",
+    "XTXTXXTTTXTXT": "Xỉu",
+    "XTXTXXTTTXTXX": "Xỉu",
+    "XTXTXXTTTXXTT": "Tài",
+    "XTXTXXTTTXXTX": "Tài",
+    "XTXTXXTTTXXXT": "Xỉu",
+    "XTXTXXTTTXXXX": "Tài",
+    "XTXTXXTTXTTTT": "Tài",
+    "XTXTXXTTXTTTX": "Tài",
+    "XTXTXXTTXTTXT": "Xỉu",
+    "XTXTXXTTXTTXX": "Xỉu",
+    "XTXTXXTTXTXTT": "Tài",
+    "XTXTXXTTXTXTX": "Tài",
+    "XTXTXXTTXTXXT": "Xỉu",
+    "XTXTXXTTXTXXX": "Tài",
+    "XTXTXXTTXXTTT": "Xỉu",
+    "XTXTXXTTXXTTX": "Xỉu",
+    "XTXTXXTTXXTXT": "Xỉu",
+    "XTXTXXTTXXTXX": "Xỉu",
+    "XTXTXXTTXXXTT": "Tài",
+    "XTXTXXTTXXXTX": "Tài",
+    "XTXTXXTTXXXXT": "Xỉu",
+    "XTXTXXTTXXXXX": "Xỉu",
+    "XTXTXXTXTTTTT": "Tài",
+    "XTXTXXTXTTTTX": "Tài",
+    "XTXTXXTXTTTXT": "Xỉu",
+    "XTXTXXTXTTTXX": "Xỉu",
+    "XTXTXXTXTTXTT": "Tài",
+    "XTXTXXTXTTXTX": "Tài",
+    "XTXTXXTXTTXXT": "Xỉu",
+    "XTXTXXTXTTXXX": "Xỉu",
+    "XTXTXXTXTXTTT": "Xỉu",
+    "XTXTXXTXTXTTX": "Xỉu",
+    "XTXTXXTXTXTXT": "Xỉu",
+    "XTXTXXTXTXTXX": "Xỉu",
+    "XTXTXXTXTXXTT": "Tài",
+    "XTXTXXTXTXXTX": "Tài",
+    "XTXTXXTXTXXXT": "Xỉu",
+    "XTXTXXTXTXXXX": "Xỉu",
+    "XTXTXXTXXTTTT": "Xỉu",
+    "XTXTXXTXXTTTX": "Tài",
+    "XTXTXXTXXTTXT": "Xỉu",
+    "XTXTXXTXXTTXX": "Xỉu",
+    "XTXTXXTXXTXTT": "Tài",
+    "XTXTXXTXXTXTX": "Tài",
+    "XTXTXXTXXTXXT": "Xỉu",
+    "XTXTXXTXXTXXX": "Tài",
+    "XTXTXXTXXXTTT": "Xỉu",
+    "XTXTXXTXXXTTX": "Tài",
+    "XTXTXXTXXXTXT": "Xỉu",
+    "XTXTXXTXXXTXX": "Xỉu",
+    "XTXTXXTXXXXTT": "Tài",
+    "XTXTXXTXXXXTX": "Tài",
+    "XTXTXXTXXXXXT": "Xỉu",
+    "XTXTXXTXXXXXX": "Xỉu",
+    "XTXTXXXTTTTTT": "Tài",
+    "XTXTXXXTTTTTX": "Tài",
+    "XTXTXXXTTTTXT": "Xỉu",
+    "XTXTXXXTTTTXX": "Xỉu",
+    "XTXTXXXTTTXTT": "Tài",
+    "XTXTXXXTTTXTX": "Tài",
+    "XTXTXXXTTTXXT": "Tài",
+    "XTXTXXXTTTXXX": "Tài",
+    "XTXTXXXTTXTTT": "Tài",
+    "XTXTXXXTTXTTX": "Tài",
+    "XTXTXXXTTXTXT": "Xỉu",
+    "XTXTXXXTTXTXX": "Xỉu",
+    "XTXTXXXTTXXTT": "Tài",
+    "XTXTXXXTTXXTX": "Tài",
+    "XTXTXXXTTXXXT": "Xỉu",
+    "XTXTXXXTTXXXX": "Tài",
+    "XTXTXXXTXTTTT": "Tài",
+    "XTXTXXXTXTTTX": "Tài",
+    "XTXTXXXTXTTXT": "Xỉu",
+    "XTXTXXXTXTTXX": "Xỉu",
+    "XTXTXXXTXTXTT": "Tài",
+    "XTXTXXXTXTXTX": "Tài",
+    "XTXTXXXTXTXXT": "Tài",
+    "XTXTXXXTXTXXX": "Xỉu",
+    "XTXTXXXTXXTTT": "Xỉu",
+    "XTXTXXXTXXTTX": "Tài",
+    "XTXTXXXTXXTXT": "Xỉu",
+    "XTXTXXXTXXTXX": "Xỉu",
+    "XTXTXXXTXXXTT": "Tài",
+    "XTXTXXXTXXXTX": "Tài",
+    "XTXTXXXTXXXXT": "Xỉu",
+    "XTXTXXXTXXXXX": "Xỉu",
+    "XTXTXXXXTTTTT": "Tài",
+    "XTXTXXXXTTTTX": "Tài",
+    "XTXTXXXXTTTXT": "Xỉu",
+    "XTXTXXXXTTTXX": "Xỉu",
+    "XTXTXXXXTTXTT": "Tài",
+    "XTXTXXXXTTXTX": "Tài",
+    "XTXTXXXXTTXXT": "Tài",
+    "XTXTXXXXTTXXX": "Xỉu",
+    "XTXTXXXXTXTTT": "Tài",
+    "XTXTXXXXTXTTX": "Tài",
+    "XTXTXXXXTXTXT": "Xỉu",
+    "XTXTXXXXTXTXX": "Xỉu",
+    "XTXTXXXXTXXTT": "Tài",
+    "XTXTXXXXTXXTX": "Tài",
+    "XTXTXXXXTXXXT": "Xỉu",
+    "XTXTXXXXTXXXX": "Xỉu",
+    "XTXTXXXXXTTTT": "Xỉu",
+    "XTXTXXXXXTTTX": "Tài",
+    "XTXTXXXXXTTXT": "Xỉu",
+    "XTXTXXXXXTTXX": "Xỉu",
+    "XTXTXXXXXTXTT": "Tài",
+    "XTXTXXXXXTXTX": "Tài",
+    "XTXTXXXXXTXXT": "Tài",
+    "XTXTXXXXXTXXX": "Xỉu",
+    "XTXTXXXXXXTTT": "Tài",
+    "XTXTXXXXXXTTX": "Xỉu",
+    "XTXTXXXXXXTXT": "Xỉu",
+    "XTXTXXXXXXTXX": "Xỉu",
+    "XTXTXXXXXXXTT": "Tài",
+    "XTXTXXXXXXXTX": "Tài",
+    "XTXTXXXXXXXXT": "Xỉu",
+    "XTXTXXXXXXXXX": "Xỉu",
+    "XTXXTTTTTTTTT": "Tài",
+    "XTXXTTTTTTTTX": "Tài",
+    "XTXXTTTTTTTXT": "Xỉu",
+    "XTXXTTTTTTTXX": "Xỉu",
+    "XTXXTTTTTTXTT": "Tài",
+    "XTXXTTTTTTXTX": "Tài",
+    "XTXXTTTTTTXXT": "Xỉu",
+    "XTXXTTTTTTXXX": "Xỉu",
+    "XTXXTTTTTXTTT": "Tài",
+    "XTXXTTTTTXTTX": "Tài",
+    "XTXXTTTTTXTXT": "Xỉu",
+    "XTXXTTTTTXTXX": "Xỉu",
+    "XTXXTTTTTXXTT": "Tài",
+    "XTXXTTTTTXXTX": "Tài",
+    "XTXXTTTTTXXXT": "Xỉu",
+    "XTXXTTTTTXXXX": "Xỉu",
+    "XTXXTTTTXTTTT": "Xỉu",
+    "XTXXTTTTXTTTX": "Tài",
+    "XTXXTTTTXTTXT": "Xỉu",
+    "XTXXTTTTXTTXX": "Xỉu",
+    "XTXXTTTTXTXTT": "Tài",
+    "XTXXTTTTXTXTX": "Tài",
+    "XTXXTTTTXTXXT": "Xỉu",
+    "XTXXTTTTXTXXX": "Xỉu",
+    "XTXXTTTTXXTTT": "Tài",
+    "XTXXTTTTXXTTX": "Xỉu",
+    "XTXXTTTTXXTXT": "Xỉu",
+    "XTXXTTTTXXTXX": "Xỉu",
+    "XTXXTTTTXXXTT": "Tài",
+    "XTXXTTTTXXXTX": "Tài",
+    "XTXXTTTTXXXXT": "Xỉu",
+    "XTXXTTTTXXXXX": "Xỉu",
+    "XTXXTTTXTTTTT": "Tài",
+    "XTXXTTTXTTTTX": "Tài",
+    "XTXXTTTXTTTXT": "Xỉu",
+    "XTXXTTTXTTTXX": "Xỉu",
+    "XTXXTTTXTTXTT": "Tài",
+    "XTXXTTTXTTXTX": "Tài",
+    "XTXXTTTXTTXXT": "Xỉu",
+    "XTXXTTTXTTXXX": "Xỉu",
+    "XTXXTTTXTXTTT": "Xỉu",
+    "XTXXTTTXTXTTX": "Tài",
+    "XTXXTTTXTXTXT": "Xỉu",
+    "XTXXTTTXTXTXX": "Xỉu",
+    "XTXXTTTXTXXTT": "Tài",
+    "XTXXTTTXTXXTX": "Tài",
+    "XTXXTTTXTXXXT": "Xỉu",
+    "XTXXTTTXTXXXX": "Tài",
+    "XTXXTTTXXTTTT": "Tài",
+    "XTXXTTTXXTTTX": "Tài",
+    "XTXXTTTXXTTXT": "Xỉu",
+    "XTXXTTTXXTTXX": "Xỉu",
+    "XTXXTTTXXTXTT": "Tài",
+    "XTXXTTTXXTXTX": "Tài",
+    "XTXXTTTXXTXXT": "Tài",
+    "XTXXTTTXXTXXX": "Tài",
+    "XTXXTTTXXXTTT": "Xỉu",
+    "XTXXTTTXXXTTX": "Xỉu",
+};
+
 // --- CẤU HÌNH ---
-const HISTORY_API_URL = 'https://kbvvv.onrender.com/api/taixiu/ws';
-const ALGORITHM_FILE = 'thuattoan.txt';
+const HISTORY_API_URL = 'https://dsaw.onrender.com/api/taixiu';
+const HISTORY_LENGTH = 13; 
 
-// Bạn cần xác định chính xác Key trong file của bạn có bao nhiêu ký tự.
-// Dựa trên ảnh mẫu "XXXXXXXXXTTTXT", có vẻ là 12 ký tự.
-const HISTORY_KEY_LENGTH = 12; 
-
-// Biến lưu trữ dữ liệu thuật toán đã được xử lý
-// Map: {"XXXXXXXXXTTTXT": "Xỉu", "XXXXXXXXXTTXT": "Tài", ...}
-let predictionMapByKey = new Map();
-
-// --- TẢI VÀ XỬ LÝ THUẬT TOÁN (CHẠY 1 LẦN) ---
+// --- HÀM TẠO ĐỘ TIN CẬY NGẪU NHIÊN (RANDOM) ---
 /**
- * Đọc file 'thuattoan8192.txt', trích xuất Key (chuỗi X/T) và Value (Tài/Xỉu), 
- * sau đó lưu toàn bộ vào Map trong bộ nhớ.
+ * Tạo một giá trị độ tin cậy ngẫu nhiên (RANDOM) từ 65.0% đến 95.0% (hoặc 0.0% nếu không thể dự đoán).
+ * @param {string} prediction - Kết quả dự đoán ("Tài", "Xỉu", hoặc "Không xác định").
+ * @returns {string} - Giá trị độ tin cậy dưới dạng chuỗi có ký hiệu %.
  */
-function loadPredictionAlgorithm() {
-    try {
-        const filePath = path.join(__dirname, ALGORITHM_FILE);
-        const data = fs.readFileSync(filePath, 'utf8');
-        const lines = data.split('\n');
-
-        // Regex: Lấy chuỗi KEY ("...") và VALUE ("...")
-        // Lưu ý: Key là nhóm 1, Value là nhóm 2
-        const regex = /"(.+)":\s*"(Tài|Xỉu)"/;
-
-        for (const line of lines) {
-            const match = line.match(regex);
-            if (match && match.length === 3) {
-                const key = match[1];   
-                const value = match[2]; 
-                
-                // Chỉ lưu trữ nếu Key có độ dài chính xác
-                if (key.length === HISTORY_KEY_LENGTH) {
-                    predictionMapByKey.set(key, value);
-                }
-            }
-        }
-        console.log(`✅ Đã tải thành công ${predictionMapByKey.size} mẫu dự đoán từ ${ALGORITHM_FILE}.`);
-        
-        if (predictionMapByKey.size === 0) {
-            console.warn(`⚠️ Không tìm thấy mẫu nào có độ dài ${HISTORY_KEY_LENGTH} ký tự.`);
-        }
-    } catch (err) {
-        console.error(`❌ LỖI: Không thể đọc hoặc xử lý file ${ALGORITHM_FILE}.`, err.message);
-        // Đóng server nếu không thể tải dữ liệu thuật toán
-        process.exit(1); 
-    }
-}
-
-// --- LOGIC DỰ ĐOÁN (TRA CỨU) ---
-/**
- * Thuật toán dự đoán: Tra cứu Key lịch sử (chuỗi X/T) trong bộ 8K mẫu.
- * @param {string} historyKey - Chuỗi lịch sử (ví dụ: "XXXXXXTTTTXX") để tra cứu.
- * @returns {string} - Kết quả dự đoán ("Tài" hoặc "Xỉu") hoặc "Không có mẫu".
- */
-function fileBasedPredictTX(historyKey) {
-    // Tra cứu cực nhanh trong Map đã được tải
-    const prediction = predictionMapByKey.get(historyKey);
-    return prediction || "Không có mẫu"; 
-}
-
-// --- HÀM TẠO ĐỘ TIN CẬY NGẪU NHIÊN ---
-function getRandomConfidence() {
-  const min = 80.0; // Độ tin cậy cao hơn khi dùng thuật toán lớn
-  const max = 98.5; 
+function getRandomConfidence(prediction) {
+  if (prediction === "Không xác định") {
+      return "0.0%"; 
+  }
+  const min = 65.0;
+  const max = 95.0;
+  // Dùng Math.random() để tạo ra giá trị ngẫu nhiên
   const confidence = Math.random() * (max - min) + min;
   return confidence.toFixed(1) + "%";
 }
 
-// ----------------------------------------------------------------------
-// --- ENDPOINT CHÍNH ---
-// ----------------------------------------------------------------------
-app.get('/api/2k15', async (req, res) => {
-  try {
-    const response = await axios.get(HISTORY_API_URL);
-    // Giả sử API trả về mảng lịch sử (gần nhất ở đầu, cũ nhất ở cuối)
-    const historyData = Array.isArray(response.data) ? response.data : [response.data];
-    if (!historyData || historyData.length <= HISTORY_KEY_LENGTH) {
-        throw new Error(`Không đủ dữ liệu lịch sử. Cần ${HISTORY_KEY_LENGTH} phiên.`);
+// --- HÀM DỰ ĐOÁN (KHÔNG NGẪU NHIÊN) ---
+/**
+ * Thuật toán dự đoán dựa trên tra cứu Deterministic Lookup Map.
+ *
+ * @param {string} history - Chuỗi 13 kết quả gần nhất ("T" hoặc "X").
+ * @returns {string} - Kết quả dự đoán ("Tài" hoặc "Xỉu") hoặc "Không xác định".
+ */
+function predictFromHistory(history) {
+    if (history.length !== HISTORY_LENGTH) {
+        return "Lịch sử không đủ độ dài";
     }
+    // Tra cứu trực tiếp trong Map. Hoàn toàn không ngẫu nhiên.
+    return PREDICTION_MAP[history] || "Không xác định";
+}
 
-    const currentData = historyData[0];
-    
-    // 1. TẠO KEY TỪ LỊCH SỬ API
-    const historyKeyArray = historyData
-        .slice(1, HISTORY_KEY_LENGTH + 1) // Lấy lịch sử chính xác HISTORY_KEY_LENGTH phiên trước đó
-        .map(item => item.Ket_qua === 'Tài' ? 'T' : 'X');
 
-    // **QUAN TRỌNG NHẤT:** Xác định thứ tự Key trong file của bạn (CŨ -> MỚI hay MỚI -> CŨ)
-    // Nếu file của bạn sắp xếp Key từ CŨ NHẤT đến MỚI NHẤT, bạn cần đảo ngược:
-    const historyKey = historyKeyArray.reverse().join(''); 
-    
-    // Nếu file của bạn sắp xếp Key từ MỚI NHẤT đến CŨ NHẤT, hãy dùng:
-    // const historyKey = historyKeyArray.join(''); 
-    
-    const phienTruocInt = parseInt(currentData.Phien);
-    const nextSession = phienTruocInt + 1;
+// --- ENDPOINT DỰ ĐOÁN ---
+app.get('/api/lookup_predict', async (req, res) => {
+    try {
+        const response = await axios.get(HISTORY_API_URL);
+        const historyData = Array.isArray(response.data) ? response.data : [response.data];
+        
+        // Lấy lịch sử 13 phiên gần nhất, chuyển thành T/X
+        const recentHistory = historyData
+          .slice(0, HISTORY_LENGTH)
+          .map(item => item.Ket_qua === 'Tài' ? 'T' : 'X')
+          .join('');
+        
+        // Đảo ngược chuỗi để có thứ tự CŨ nhất -> MỚI nhất (Phù hợp với key bạn cung cấp)
+        const predictionKey = recentHistory.split('').reverse().join('');
+        
+        const currentData = historyData[0];
+        const phienTruocInt = parseInt(currentData.Phien);
+        const nextSession = phienTruocInt + 1;
+        
+        // 1. DỰ ĐOÁN (NON-RANDOM)
+        const prediction = predictFromHistory(predictionKey);
+        
+        // 2. ĐỘ TIN CẬY (RANDOM)
+        const confidence = getRandomConfidence(prediction); // HOÀN TOÀN NGẪU NHIÊN
 
-    // 2. TRA CỨU
-    const prediction = fileBasedPredictTX(historyKey);
-    
-    // 3. XỬ LÝ KHI KHÔNG TÌM THẤY MẪU (Key không khớp với 8K mẫu)
-    if (prediction === "Không có mẫu") {
-        return res.status(200).json({ 
+        // Tính tổng xúc xắc
+        const tongXucXac = currentData.Tong || (parseInt(currentData.Xuc_xac_1) + parseInt(currentData.Xuc_xac_2) + parseInt(currentData.Xuc_xac_3));
+
+        res.json({
             id: "@cskhtoollxk",
-            error: "Key lịch sử không khớp với bất kỳ mẫu nào trong bộ 8K.",
-            history_key: historyKey,
+            phien_truoc: currentData.Phien,
+            xuc_xac: [currentData.Xuc_xac_1, currentData.Xuc_xac_2, currentData.Xuc_xac_3],
+            tong_xuc_xac: tongXucXac,
+            ket_qua_truoc: currentData.Ket_qua,
+            lich_su_tra_cuu: predictionKey,
             phien_sau: nextSession,
-            du_doan: (historyKey.endsWith('T') ? "Xỉu" : "Tài"), // Ví dụ: Dự đoán ngược lại kết quả cuối cùng
-            do_tin_cay: "60.0%",
-            giai_thich: "Sử dụng logic dự phòng vì không tìm thấy Key trong thuật toán chính."
+            du_doan: prediction,
+            do_tin_cay: confidence,
+            giai_thich: `sexx`
+        });
+
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).json({
+            id: "@cskhtoollxk_random_confidence",
+            error: "Lỗi hệ thống hoặc không thể lấy dữ liệu lịch sử từ API ngoài.",
+            du_doan: "Không thể dự đoán",
+            do_tin_cay: "0.0%",
+            giai_thich: "Đang chờ dữ liệu lịch sử hoặc lỗi kết nối API."
         });
     }
-
-    // 4. TRẢ VỀ KẾT QUẢ TỪ THUẬT TOÁN
-    const confidence = getRandomConfidence();
-
-    res.json({
-      id: "@cskhtoollxk",
-      phien_truoc: currentData.Phien,
-      ket_qua_truoc: currentData.Ket_qua,
-      phien_sau: nextSession,
-      history_key: historyKey, 
-      du_doan: prediction,
-      do_tin_cay: confidence,
-      giai_thich: `Đã tra cứu thành công Key: ${historyKey} trong ${predictionMapByKey.size} mẫu.`
-    });
-
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({
-      id: "@cskhtoollxk",
-      error: "Lỗi hệ thống hoặc không thể lấy dữ liệu",
-      du_doan: "Không thể dự đoán",
-      do_tin_cay: "0%",
-      giai_thich: "Lỗi: " + err.message
-    });
-  }
 });
 
 app.get('/', (req, res) => {
-  res.send("Chào mừng đến API dự đoán Tài Xỉu! Truy cập /api/2k15 để xem dự đoán.");
+    res.send("Chào mừng đến API dự đoán Tài Xỉu (Random Confidence)! Truy cập /api/lookup_predict để xem dự đoán.");
 });
 
-// Tải dữ liệu thuật toán trước khi khởi động server
-loadPredictionAlgorithm();
-
 app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
+    
