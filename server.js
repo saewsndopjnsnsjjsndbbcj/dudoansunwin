@@ -123,7 +123,7 @@ app.get('/api/lookup_predict', async (req, res) => {
         
         // --- TRẢ VỀ PHẢN HỒI LUÔN CÓ DỰ ĐOÁN VÀ ĐỘ TIN CẬY ---
         res.json({
-            id: "@cskhtoollxk",
+            id: "@cskhtoollxk_final_standard",
             phien_truoc: currentData ? currentData.Phien : "N/A",
             xuc_xac: currentData ? [currentData.Xuc_xac_1, currentData.Xuc_xac_2, currentData.Xuc_xac_3] : "N/A",
             tong_xuc_xac: tongXucXac, // KẾT QUẢ TÍNH TỔNG XÚC XẮC
@@ -132,7 +132,7 @@ app.get('/api/lookup_predict', async (req, res) => {
             phien_sau: phienSau,
             du_doan: prediction, 
             do_tin_cay: confidence, // GIÁ TRỊ NGẪU NHIÊN (RANDOM)
-            giai_thich: `ditconcumay`
+            giai_thich: `bucutdi`
         });
 
     } catch (err) {
@@ -152,5 +152,5 @@ app.get('/', (req, res) => {
     res.send("API dự đoán Tài Xỉu (Fixed Standard) đã hoạt động. Truy cập /api/lookup_predict.");
 });
 
-app.listen(PORT, ()
-                                            
+app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
+        
