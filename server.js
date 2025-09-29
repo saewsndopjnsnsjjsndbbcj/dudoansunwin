@@ -423,7 +423,7 @@ const PREDICTION_MAP = {
 };
 
 // --- CẤU HÌNH ---
-const HISTORY_API_URL = 'https://dsaw.onrender.com/api/taixiu';
+const HISTORY_API_URL = 'https://lich-uhnh.onrender.com/api/taixiu';
 const HISTORY_LENGTH = 13; 
 
 // --- HÀM TẠO ĐỘ TIN CẬY NGẪU NHIÊN (RANDOM) ---
@@ -518,3 +518,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
     
+
