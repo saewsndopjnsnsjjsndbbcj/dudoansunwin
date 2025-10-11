@@ -101,7 +101,7 @@ app.get('/api/lookup_predict', async (req, res) => {
                 phien_sau: predictionCache.phienSau,
                 du_doan: predictionCache.du_doan, 
                 do_tin_cay: predictionCache.do_tin_cay, // GIÁ TRỊ CỐ ĐỊNH CAO
-                giai_thich: "Sử dụng cache: Dự đoán dựa trên TỔNG xúc xắc (chẵn -> Tài | lẻ -> Xỉu)."
+                giai_thich: "bucuemko"
             });
         }
 
@@ -161,3 +161,4 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
                 
+
