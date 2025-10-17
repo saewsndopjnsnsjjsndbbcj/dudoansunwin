@@ -9,7 +9,7 @@ const PORT = process.env.PORT || 3000;
 // Không còn sử dụng PREDICTION_MAP
 
 // --- CẤU HÌNH ---
-const HISTORY_API_URL = 'https://lich-uhnh.onrender.com/api/taixiu';
+const HISTORY_API_URL = 'https://sunwinsaygex.onrender.com/api/taixiu/history';
 // HISTORY_LENGTH không còn cần thiết nhưng giữ lại để không làm lỗi code khác
 
 // =====================================================================
@@ -161,4 +161,5 @@ app.get('/', (req, res) => {
 
 app.listen(PORT, () => console.log(`Server đang chạy trên cổng ${PORT}`));
                 
+
 
