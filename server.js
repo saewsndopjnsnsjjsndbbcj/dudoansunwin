@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 3000;
 // =====================================================================
 // I. CẤU HÌNH NGUỒN DỮ LIỆU
 // =====================================================================
-const HISTORY_API_URL = 'https://bajh.onrender.com/';
+const HISTORY_API_URL = 'https://lichsusunw.onrender.com';
 
 // =====================================================================
 // II. CACHE DỰ ĐOÁN (ĐỂ CỐ ĐỊNH KẾT QUẢ CHO TỪNG PHIÊN)
@@ -140,3 +140,4 @@ app.get('/', (req, res) => {
 // VII. KHỞI ĐỘNG SERVER
 // =====================================================================
 app.listen(PORT, () => console.log(`🚀 Server chạy trên cổng ${PORT}`));
+
