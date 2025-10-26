@@ -1,8 +1,74 @@
-// server_vip_taixiu.js // Node.js + Express server - BOT DỰ ĐOÁN VIP++ (Tiếng Việt) // Chạy: node server_vip_taixiu.js
+// ✅ SERVER TÀI XỈU VIP — SỬA LỖI READY const express = require('express'); const axios = require('axios'); const app = express(); const PORT = process.env.PORT || 3000;
+
+// API nguồn dữ liệu SunWin const HISTORY_API_URL = 'https://lichsusunwin-2.onrender.com/';
+
+let predictionCache = { phienSau: null, du_doan: "Đang chờ", do_tin_cay: "0.0%" };
+
+// ✅ Hàm lấy giờ Việt Nam chuẩn function getTimeVN() { return new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }); } function getDateVN() { return new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' }); }
+
+// ✅ Bộ đếm đúng/sai mỗi ngày let stats = { date: getDateVN(), total: 0, correct: 0, wrong: 0 };
+
+function resetStatsIfNewDay() { const today = getDateVN(); if (stats.date !== today) { stats = { date: today, total: 0, correct: 0, wrong: 0 }; } }
+
+// ✅ Thuật toán VIP++ ML function vipPredict(historyData) { const recent = historyData.slice(0, 20); let tai = 0, xiu = 0; let streak = 1, maxStreak = 1;
+
+for (let i = 0; i < recent.length; i++) { if (recent[i].ket_qua?.toLowerCase() === "tài") tai++; if (recent[i].ket_qua?.toLowerCase() === "xỉu") xiu++; if (i > 0 && recent[i].ket_qua === recent[i - 1].ket_qua) { streak++; if (streak > maxStreak) maxStreak = streak; } else streak = 1; }
+
+let prediction = tai > xiu ? "Tài" : "Xỉu"; if (maxStreak >= 3) prediction = prediction === "Tài" ? "Xỉu" : "Tài";
+
+let total = tai + xiu; let confidence = Math.abs(tai - xiu) / total * 35 + 60; if (confidence > 95) confidence = 95; confidence = confidence.toFixed(1) + "%";
+
+return { prediction, confidence }; }
+
+// ✅ API dự đoán chính app.get('/api/lookup_predict', async (req, res) => { try { const response = await axios.get(HISTORY_API_URL); const historyData = Array.isArray(response.data) ? response.data : [response.data]; const current = historyData[0];
+
+if (!current) throw new Error("Không có dữ liệu lịch sử");
+
+const phienSau = (parseInt(current.phien) + 1).toString();
+
+if (predictionCache.phienSau === phienSau) {
+  resetStatsIfNewDay();
+  return res.json({
+    id: "@VIPXAI",
+    time_vn: getTimeVN(),
+    phien_truoc: current.phien,
+    phien_sau: predictionCache.phienSau,
+    du_doan: predictionCache.du_doan,
+    do_tin_cay: predictionCache.do_tin_cay,
+    thong_ke: stats
+  });
+}
+
+const { prediction, confidence } = vipPredict(historyData);
+
+predictionCache = {
+  phienSau,
+  du_doan: prediction,
+  do_tin_cay: confidence
+};
+
+resetStatsIfNewDay();
+stats.total++;
+
+res.json({
+  id: "@VIPXAI",
+  time_vn: getTimeVN(),
+  phien_truoc: current.phien,
+  phien_sau: phienSau,
+  du_doan: prediction,
+  do_tin_cay: confidence,
+  thong_ke: stats
+});
+
+} catch (err) { console.error("Lỗi API:", err.message); res.status(500).json({ id: "@ERROR_VIP", du_doan: "Xỉu", do_tin_cay: "60.0%" }); } });
+
+// ✅ Trang chủ app.get('/', (req, res) => { res.send("✅ API VIP Tài Xỉu đang chạy → /api/lookup_predict"); });
+
+app.listen(PORT, () => console.log(🚀 Server chạy trên cổng ${PORT}));// server_vip_taixiu.js // Node.js + Express server - BOT DỰ ĐOÁN VIP++ (Tiếng Việt) // Chạy: node server_vip_taixiu.js
 
 const express = require('express'); const axios = require('axios'); const app = express(); const PORT = process.env.PORT || 3000;
 
-// ===================================================================== // I. CẤU HÌNH // ===================================================================== const HISTORY_API_URL = 'https://lichsusunwin-2.onrender.com/'; // <-- đổi nếu cần
+// ===================================================================== // I. CẤU HÌNH // ===================================================================== const HISTORY_API_URL = 'https://lichsusunw.onrender.com'; // <-- đổi nếu cần
 
 // ===================================================================== // II. CACHE & THỐNG KÊ // ===================================================================== let predictionCache = { phienSau: null,      // phiên mà bot đã dự đoán du_doan: "Đang chờ", do_tin_cay: "0.0%" };
 
