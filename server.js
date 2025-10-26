@@ -80,7 +80,7 @@ function normalizeResult(val) {
 
 // -------------------- THUẬT TOÁN VIP PRO (ANTI-TREND) --------------------
 function vipProPredict(historyArray) {
-  // historyArray là mảng các object có field `ket_qua` chứa "Tài" hoặc "Xỉu"
+  // historyArray là mảng các object có field ket_qua chứa "Tài" hoặc "Xỉu"
   const recent = Array.isArray(historyArray) ? historyArray.slice(0, RECENT_COUNT) : [];
   let countTai = 0, countXiu = 0;
 
@@ -114,6 +114,40 @@ function vipProPredict(historyArray) {
   return { duDoan, doTinCay };
 }
 
+// -------------------- MỚI: CẬP NHẬT ĐÚNG/SAI KHI CÓ KQ THỰC TẾ --------------------
+function checkAndUpdateAccuracy(latest) {
+  try {
+    // latest: object phiên mới nhất (data[0])
+    if (!latest || latest.phien === undefined) return;
+
+    // Nếu không có dự đoán trước đó hoặc cache rỗng -> không làm gì
+    if (!cacheDuDoan || !cacheDuDoan.phienDuDoan) return;
+
+    const predictedPhien = String(cacheDuDoan.phienDuDoan);
+    const latestPhien = String(latest.phien);
+
+    // Khi phiên thực tế bằng phiên đã dự đoán trước đó -> đánh giá đúng/sai
+    if (predictedPhien === latestPhien) {
+      const actual = normalizeResult(latest.ket_qua);
+      const predicted = cacheDuDoan.duDoan;
+
+      if (actual === predicted) {
+        thongKeNgay.dung = (thongKeNgay.dung || 0) + 1;
+      } else {
+        thongKeNgay.sai = (thongKeNgay.sai || 0) + 1;
+      }
+
+      // Sau khi update, clear cache để tránh cộng 2 lần
+      cacheDuDoan.phienDuDoan = null;
+      cacheDuDoan.duDoan = "Đang chờ";
+      cacheDuDoan.doTinCay = "0.0%";
+    }
+  } catch (e) {
+    // ignore errors nhẹ
+    console.warn("checkAndUpdateAccuracy error:", e && e.message ? e.message : e);
+  }
+}
+
 // -------------------- ENDPOINT: /api/lookup_predict --------------------
 app.get("/api/lookup_predict", async (req, res) => {
   try {
@@ -131,49 +165,55 @@ app.get("/api/lookup_predict", async (req, res) => {
       });
     }
 
-    // Tính dự đoán từ RECENT_COUNT phiên
-    const { duDoan, doTinCay } = vipProPredict(data);
-
-    // Phiên dự đoán = phiên gần nhất + 1 (nếu có trường phien)
-    const phienGanNhat = (data[0] && data[0].phien !== undefined) ? String(data[0].phien) : "N/A";
-    const phienDuDoan = (phienGanNhat !== "N/A") ? String(parseInt(phienGanNhat) + 1) : "N/A";
-
-    // Nếu cache đã dự đoán cho cùng phiên -> trả cache (đảm bảo kết quả cố định trong 1 phiên)
-    if (cacheDuDoan.phienDuDoan === phienDuDoan && phienDuDoan !== "N/A") {
-      resetIfNewDayAndKeep();
-      return res.json({
-        id: "VIP_PRO_001",
-        time_vn: getTimeVN(),
-        phien_gan_nhat: phienGanNhat,
-        ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
-        phien_du_doan: cacheDuDoan.phienDuDoan,
-        du_doan: cacheDuDoan.duDoan,
-        do_tin_cay: cacheDuDoan.doTinCay,
-        thong_ke: thongKeNgay
-      });
-    }
-
-    // Cập nhật cache và thống kê
-    cacheDuDoan = {
-      phienDuDoan,
-      duDoan,
-      doTinCay
-    };
-
-    // Reset ngày nếu cần và tăng tổng dự đoán
+    // Reset ngày nếu cần trước khi tính toán / cập nhật
     resetIfNewDayAndKeep();
-    thongKeNgay.tong = (thongKeNgay.tong || 0) + 1;
 
-    // Trả về
-    return res.json({
-      id: "VIP_PRO_001",
-      time_vn: getTimeVN(),
-      phien_gan_nhat: phienGanNhat,
-      ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
-      phien_du_doan: phienDuDoan,
-      du_doan,
-      do_tin_cay: doTinCay,
-      thong_ke: thongKeNgay
+    // MỚI: nếu phiên gần nhất đã là phiên mà ta từng dự đoán -> update đúng/sai
+    checkAndUpdateAccuracy(data[0]);
+
+    // Tính dự đoán từ RECENT_COUNT phiên  
+    const { duDoan, doTinCay } = vipProPredict(data);  
+
+    // Phiên dự đoán = phiên gần nhất + 1 (nếu có trường phien)  
+    const phienGanNhat = (data[0] && data[0].phien !== undefined) ? String(data[0].phien) : "N/A";  
+    const phienDuDoan = (phienGanNhat !== "N/A") ? String(parseInt(phienGanNhat) + 1) : "N/A";  
+
+    // Nếu cache đã dự đoán cho cùng phiên -> trả cache (đảm bảo kết quả cố định trong 1 phiên)  
+    if (cacheDuDoan.phienDuDoan === phienDuDoan && phienDuDoan !== "N/A") {  
+      resetIfNewDayAndKeep();  
+      return res.json({  
+        id: "VIP_PRO_001",  
+        time_vn: getTimeVN(),  
+        phien_gan_nhat: phienGanNhat,  
+        ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),  
+        phien_du_doan: cacheDuDoan.phienDuDoan,  
+        du_doan: cacheDuDoan.duDoan,  
+        do_tin_cay: cacheDuDoan.doTinCay,  
+        thong_ke: thongKeNgay  
+      });  
+    }  
+
+    // Cập nhật cache và thống kê  
+    cacheDuDoan = {  
+      phienDuDoan,  
+      duDoan,  
+      doTinCay  
+    };  
+
+    // Reset ngày nếu cần và tăng tổng dự đoán  
+    resetIfNewDayAndKeep();  
+    thongKeNgay.tong = (thongKeNgay.tong || 0) + 1;  
+
+    // Trả về  
+    return res.json({  
+      id: "VIP_PRO_001",  
+      time_vn: getTimeVN(),  
+      phien_gan_nhat: phienGanNhat,  
+      ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),  
+      phien_du_doan: phienDuDoan,  
+      du_doan,  
+      do_tin_cay: doTinCay,  
+      thong_ke: thongKeNgay  
     });
 
   } catch (err) {
