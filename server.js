@@ -1,187 +1,218 @@
-// server_vip_taixiu.js
-// Node.js + Express server - BOT DỰ ĐOÁN VIP++ (Tiếng Việt)
-// Chạy: node server_vip_taixiu.js
+// server_vip_pro.js
+// Node.js + Express - BOT DỰ ĐOÁN VIP PRO (Tiếng Việt)
+// - Dùng 15 phiên gần nhất
+// - Anti-trend (không dựa vào 1 phiên trước)
+// - Độ tin cậy ngẫu nhiên từ 50.0% đến 90.0%
+// Chạy: node server_vip_pro.js
 
-const express = require('express');
-const axios = require('axios');
+const express = require("express");
+const axios = require("axios");
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// =====================================================================
-// CẤU HÌNH
-// =====================================================================
-const HISTORY_API_URL = process.env.HISTORY_API_URL || 'https://lichsusunwin-2.onrender.com/';
+// -------------------- CẤU HÌNH --------------------
+const HISTORY_API_URL = process.env.HISTORY_API_URL || "https://lichsusunwin-2.onrender.com/"; // đổi nếu cần
+const RECENT_COUNT = 15; // số phiên gần nhất dùng để phân tích
+const CONF_MIN = 50.0; // %
+const CONF_MAX = 90.0; // %
 
-// =====================================================================
-// CACHE & THỐNG KÊ
-// =====================================================================
-let predictionCache = {
-  phienSau: null,
-  du_doan: "Đang chờ",
-  do_tin_cay: "0.0%"
+// -------------------- THỐNG KÊ & CACHE --------------------
+let thongKeNgay = {
+  ngay: getDateVN(),
+  tong: 0,
+  dung: 0,
+  sai: 0
 };
 
+let cacheDuDoan = {
+  phienDuDoan: null,     // phiên mà bot đã dự đoán (số)
+  duDoan: "Đang chờ",    // "Tài" hoặc "Xỉu"
+  doTinCay: "0.0%"       // string như "72.5%"
+};
+
+// -------------------- HỖ TRỢ NGÀY GIỜ VN --------------------
 function getTimeVN() {
-  return new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  return new Date().toLocaleString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 function getDateVN() {
-  return new Date().toLocaleDateString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
+  return new Date().toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh" });
 }
 
-let stats = {
-  date: getDateVN(),
-  total: 0,
-  correct: 0,
-  wrong: 0
-};
+// -------------------- RESET THỐNG KÊ 00:00 VN --------------------
+function resetThongKeNgay() {
+  thongKeNgay = { ngay: getDateVN(), tong: 0, dung: 0, sai: 0 };
+  console.log(`[${getTimeVN()}] -> Đã reset thống kê hàng ngày.`);
+}
 
-function resetStatsIfNewDay() {
-  const today = getDateVN();
-  if (stats.date !== today) {
-    stats = { date: today, total: 0, correct: 0, wrong: 0 };
-    console.log(`[${getTimeVN()}] -> Đã reset thống kê hàng ngày.`);
+// Lên lịch reset lúc 00:00 VN (khi server khởi động)
+(function scheduleMidnightReset() {
+  try {
+    const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Ho_Chi_Minh" }));
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0);
+    const ms = nextMidnight - now;
+    setTimeout(() => {
+      resetThongKeNgay();
+      setInterval(resetThongKeNgay, 24 * 60 * 60 * 1000);
+    }, ms);
+  } catch (e) {
+    console.warn("Không thể lên lịch reset tự động (hosting có thể khác timezone).");
   }
+})();
+
+// -------------------- HÀM HỖ TRỢ --------------------
+function randConfidence(min = CONF_MIN, max = CONF_MAX) {
+  const r = Math.random() * (max - min) + min;
+  return r.toFixed(1) + "%";
 }
 
-// =====================================================================
-// THUẬT TOÁN VIP++ (20 phiên gần nhất)
-// =====================================================================
-function vipPredict(historyData) {
-  const recent = Array.isArray(historyData) ? historyData.slice(0, 20) : [];
-  let tai = 0;
-  let xiu = 0;
-  let streak = 1;
-  let maxStreak = 1;
+// Chuẩn hoá kết quả từ API (tránh chữ hoa/ko dấu)
+function normalizeResult(val) {
+  if (!val && val !== "") return "";
+  const s = String(val).trim().toLowerCase();
+  if (s === "tài" || s === "tai" || s === "taí") return "Tài";
+  if (s === "xỉu" || s === "xiu" || s === "xỉu ") return "Xỉu";
+  // Nếu có dạng "Tài - Xỉu" etc, try includes
+  if (s.includes("t")) return "Tài";
+  if (s.includes("x")) return "Xỉu";
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// -------------------- THUẬT TOÁN VIP PRO (ANTI-TREND) --------------------
+function vipProPredict(historyArray) {
+  // historyArray là mảng các object có field `ket_qua` chứa "Tài" hoặc "Xỉu"
+  const recent = Array.isArray(historyArray) ? historyArray.slice(0, RECENT_COUNT) : [];
+  let countTai = 0, countXiu = 0;
 
   for (let i = 0; i < recent.length; i++) {
-    const r = (recent[i].ket_qua || '').toString().toLowerCase();
-    if (r === 'tài' || r === 'tai') tai++;
-    if (r === 'xỉu' || r === 'xiu') xiu++;
-
-    if (i > 0 && recent[i].ket_qua === recent[i - 1].ket_qua) {
-      streak++;
-      if (streak > maxStreak) maxStreak = streak;
-    } else {
-      streak = 1;
-    }
+    const kq = normalizeResult(recent[i].ket_qua);
+    if (kq === "Tài") countTai++;
+    else if (kq === "Xỉu") countXiu++;
   }
 
-  const total = (tai + xiu) || 1;
-  let prediction = tai > xiu ? 'Tài' : 'Xỉu';
-
-  if (maxStreak >= 3) {
-    prediction = prediction === 'Tài' ? 'Xỉu' : 'Tài';
+  // Nếu không đủ dữ liệu, fallback bằng dự đoán ngẫu nhiên
+  if (countTai + countXiu === 0) {
+    const rand = Math.random() < 0.5 ? "Tài" : "Xỉu";
+    return { duDoan: rand, doTinCay: randConfidence() };
   }
 
-  let confidence = Math.abs(tai - xiu) / total * 35 + 60;
-  if (confidence > 95) confidence = 95;
-  confidence = confidence.toFixed(1) + '%';
+  // Anti-trend: nếu Tài áp đảo -> dự đoán Xỉu, và ngược lại
+  let duDoan = countTai > countXiu ? "Xỉu" : "Tài";
 
-  return { prediction, confidence };
+  // Tăng/giảm độ tin cậy theo chênh lệch tỉ lệ
+  const total = countTai + countXiu;
+  const ratioDiff = Math.abs(countTai - countXiu) / total; // 0..1
+  // Map ratioDiff (0..1) -> weight (0..(CONF_MAX-CONF_MIN))
+  const dynamicPart = ratioDiff * (CONF_MAX - CONF_MIN);
+  // Baseline random to avoid deterministic -> add small randomness
+  const baseRandom = Math.random() * 5; // 0..5%
+  let confValue = CONF_MIN + dynamicPart + baseRandom;
+  if (confValue > CONF_MAX) confValue = CONF_MAX;
+  if (confValue < CONF_MIN) confValue = CONF_MIN;
+  const doTinCay = confValue.toFixed(1) + "%";
+
+  return { duDoan, doTinCay };
 }
 
-// =====================================================================
-// ENDPOINT chính: /api/lookup_predict
-// =====================================================================
-app.get('/api/lookup_predict', async (req, res) => {
+// -------------------- ENDPOINT: /api/lookup_predict --------------------
+app.get("/api/lookup_predict", async (req, res) => {
   try {
+    // Lấy lịch sử từ API gốc
     const response = await axios.get(HISTORY_API_URL, { timeout: 7000 });
-    const historyData = Array.isArray(response.data) ? response.data : [response.data];
-    const current = historyData[0] || null;
-
-    if (!current || current.phien === undefined) {
-      // Nếu API lịch sử trả về không có phiên, vẫn trả JSON hợp lệ
-      resetStatsIfNewDay();
+    const data = Array.isArray(response.data) ? response.data : [response.data];
+    // data[0] là phiên gần nhất (mới nhất)
+    if (!data || data.length === 0) {
+      // Không có dữ liệu lịch sử
       return res.json({
-        id: '@VIPAI009',
+        id: "VIP_PRO_001",
         time_vn: getTimeVN(),
-        phien_truoc: current ? current.phien : 'N/A',
-        xuc_xac: current ? [current.xuc_xac_1, current.xuc_xac_2, current.xuc_xac_3] : 'N/A',
-        ket_qua_truoc: current ? current.ket_qua : 'N/A',
-        phien_sau: 'N/A',
-        du_doan: 'N/A',
-        do_tin_cay: '0.0%',
-        thong_ke: stats,
-        note: 'Không có phiên hợp lệ từ API lịch sử.'
+        error: "Không có dữ liệu lịch sử",
+        thong_ke: thongKeNgay
       });
     }
 
-    const phienSau = (parseInt(current.phien) + 1).toString();
+    // Tính dự đoán từ RECENT_COUNT phiên
+    const { duDoan, doTinCay } = vipProPredict(data);
 
-    // Nếu đã dự đoán cho phiên này -> trả cache
-    if (predictionCache.phienSau === phienSau && phienSau !== 'N/A') {
-      resetStatsIfNewDay();
+    // Phiên dự đoán = phiên gần nhất + 1 (nếu có trường phien)
+    const phienGanNhat = (data[0] && data[0].phien !== undefined) ? String(data[0].phien) : "N/A";
+    const phienDuDoan = (phienGanNhat !== "N/A") ? String(parseInt(phienGanNhat) + 1) : "N/A";
+
+    // Nếu cache đã dự đoán cho cùng phiên -> trả cache (đảm bảo kết quả cố định trong 1 phiên)
+    if (cacheDuDoan.phienDuDoan === phienDuDoan && phienDuDoan !== "N/A") {
+      resetIfNewDayAndKeep();
       return res.json({
-        id: '@VIPAI009',
+        id: "VIP_PRO_001",
         time_vn: getTimeVN(),
-        phien_truoc: current.phien,
-        xuc_xac: [current.xuc_xac_1, current.xuc_xac_2, current.xuc_xac_3],
-        ket_qua_truoc: current.ket_qua,
-        phien_sau: predictionCache.phienSau,
-        du_doan: predictionCache.du_doan,
-        do_tin_cay: predictionCache.do_tin_cay,
-        thong_ke: stats
+        phien_gan_nhat: phienGanNhat,
+        ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
+        phien_du_doan: cacheDuDoan.phienDuDoan,
+        du_doan: cacheDuDoan.duDoan,
+        do_tin_cay: cacheDuDoan.doTinCay,
+        thong_ke: thongKeNgay
       });
     }
 
-    // Tính dự đoán mới
-    const { prediction, confidence } = vipPredict(historyData);
-
-    // Lưu cache (để cùng phiên trả về lần sau giống nhau)
-    predictionCache = {
-      phienSau,
-      du_doan: prediction,
-      do_tin_cay: confidence
+    // Cập nhật cache và thống kê
+    cacheDuDoan = {
+      phienDuDoan,
+      duDoan,
+      doTinCay
     };
 
-    // Nếu có phiên trước mà cache phienSau trùng -> cập nhật đúng/sai
-    // (chú ý: để cập nhật đúng/sai cần một request sau khi phiên kết quả được ghi vào API lịch sử)
-    // Ở đây ta chỉ tăng total khi tạo dự đoán mới, còn đúng/sai sẽ được tăng khi next request thấy kết quả thực tế
-    resetStatsIfNewDay();
-    stats.total = (stats.total || 0) + 1;
+    // Reset ngày nếu cần và tăng tổng dự đoán
+    resetIfNewDayAndKeep();
+    thongKeNgay.tong = (thongKeNgay.tong || 0) + 1;
 
+    // Trả về
     return res.json({
-      id: '@VIPAI009',
+      id: "VIP_PRO_001",
       time_vn: getTimeVN(),
-      phien_truoc: current.phien,
-      xuc_xac: [current.xuc_xac_1, current.xuc_xac_2, current.xuc_xac_3],
-      ket_qua_truoc: current.ket_qua,
-      phien_sau: phienSau,
-      du_doan: prediction,
-      do_tin_cay: confidence,
-      thong_ke: stats
+      phien_gan_nhat: phienGanNhat,
+      ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
+      phien_du_doan: phienDuDoan,
+      du_doan,
+      do_tin_cay: doTinCay,
+      thong_ke: thongKeNgay
     });
 
   } catch (err) {
-    console.error('Lỗi khi gọi API lịch sử:', err && err.message ? err.message : err);
-    // Trả fallback
+    console.error("Lỗi khi gọi API lịch sử:", err && err.message ? err.message : err);
     return res.status(500).json({
-      id: '@VIPAI009_ERR',
+      id: "VIP_PRO_001_ERR",
       time_vn: getTimeVN(),
-      error: 'Không lấy được dữ liệu lịch sử.',
-      du_doan: 'Xỉu',
-      do_tin_cay: '60.0%',
-      thong_ke: stats
+      error: "Không lấy được dữ liệu lịch sử",
+      thong_ke: thongKeNgay
     });
   }
 });
 
-// =====================================================================
-// Endpoint debug: /api/thongke
-// =====================================================================
-app.get('/api/thongke', (req, res) => {
-  resetStatsIfNewDay();
-  res.json({
+// -------------------- ENDPOINT: /api/thongke --------------------
+app.get("/api/thongke", (req, res) => {
+  resetIfNewDayAndKeep();
+  return res.json({
+    id: "VIP_PRO_001_STATS",
     time_vn: getTimeVN(),
-    thong_ke: stats,
-    cache: predictionCache
+    thong_ke: thongKeNgay,
+    cache: cacheDuDoan
   });
 });
 
-// Trang chủ
-app.get('/', (req, res) => {
-  res.send('✅ API DỰ ĐOÁN VIP++ đang chạy. Endpoint: /api/lookup_predict');
+// -------------------- HÀM RESET NGÀY TRƯỚC KHI TRẢ (KIỂM TRA MẪU) --------------------
+function resetIfNewDayAndKeep() {
+  const today = getDateVN();
+  if (thongKeNgay.ngay !== today) {
+    thongKeNgay = { ngay: today, tong: 0, dung: 0, sai: 0 };
+    console.log(`[${getTimeVN()}] -> Reset thống kê ngày mới (trước trả API).`);
+  }
+}
+
+// -------------------- TRANG CHỦ --------------------
+app.get("/", (req, res) => {
+  res.send("✅ VIP PRO API đang chạy. Endpoint: /api/lookup_predict  - Tiếng Việt");
 });
 
-// Khởi động server
-app.listen(PORT, () => console.log(`🚀 Server chạy trên cổng ${PORT}`));
+// -------------------- RUN --------------------
+app.listen(PORT, () => {
+  console.log(`🚀 VIP PRO server chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
+});
