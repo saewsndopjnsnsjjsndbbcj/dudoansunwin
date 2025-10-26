@@ -1,10 +1,9 @@
 // server_vip_pro.js
-// Node.js + Express - BOT DỰ ĐOÁN SIÊU VIP PRO (T/X)
+// Node.js + Express - BOT DỰ ĐOÁN SIÊU VIP PRO (Tài/Xỉu)
 // - Dùng 15 phiên gần nhất (Anti-trend) + 10 phiên gần nhất (Pattern)
-// - Anti-trend: dự đoán ngược với xu hướng chiếm đa số
-// - Pattern: tìm cầu lặp lại đơn giản (bệt, 1-1)
-// - Độ tin cậy ngẫu nhiên từ 50.0% đến 90.0% (được điều chỉnh theo logic)
-// - Thống kê: Tổng, Đúng, Sai được cập nhật chính xác sau mỗi phiên có kết quả.
+// - Độ tin cậy HOÀN TOÀN NGẪU NHIÊN 50-90%
+// - Thống kê Đúng/Sai cập nhật ngay sau khi phiên có kết quả
+// - Cache lưu trữ chi tiết dự đoán và kết quả thực tế (sau khi có)
 // Chạy: node server_vip_pro.js
 
 const express = require("express");
@@ -20,18 +19,20 @@ const CONF_MIN = 50.0; // %
 const CONF_MAX = 90.0; // %
 
 // -------------------- THỐNG KÊ & CACHE --------------------
-// Thống kê sẽ được cập nhật khi có kết quả thực tế của phiên đã dự đoán
 let thongKeNgay = {
     ngay: getDateVN(),
-    tong: 0, // Tổng số lần dự đoán (phiên đã dự đoán) trong ngày
+    tong: 0, 
     dung: 0,
     sai: 0
 };
 
+// Cấu trúc cache mới để lưu chi tiết phiên đã dự đoán
 let cacheDuDoan = {
-    phienDuDoan: null,     // phiên mà bot đã dự đoán (số)
-    duDoan: "Đang chờ",    // "T" (Tài) hoặc "X" (Xỉu)
-    doTinCay: "0.0%"       // string như "72.5%"
+    phienDuDoan: null,     // Phiên bot đã dự đoán
+    duDoan: "Đang chờ",    // Dự đoán của bot ("Tài" hoặc "Xỉu")
+    doTinCay: "0.0%",      // Độ tin cậy ngẫu nhiên
+    chuoiPattern: "",      // Chuỗi T/X 10 phiên
+    ketQuaThucTe: null     // NEW: Kết quả thực tế của phiên này (sau khi có)
 };
 
 // -------------------- HỖ TRỢ NGÀY GIỜ VN --------------------
@@ -65,109 +66,72 @@ function resetThongKeNgay() {
 })();
 
 // -------------------- HÀM HỖ TRỢ --------------------
+
+/**
+ * Tạo độ tin cậy ngẫu nhiên (50.0% đến 90.0%)
+ */
 function randConfidence(min = CONF_MIN, max = CONF_MAX) {
-    // Độ tin cậy ngẫu nhiên (dùng cho fallback/ban đầu)
     const r = Math.random() * (max - min) + min;
     return r.toFixed(1) + "%";
 }
 
-// Chuẩn hoá kết quả từ API (Tài -> T, Xỉu -> X)
-function normalizeResult(val) {
+/**
+ * Chuẩn hoá kết quả từ API sang T (Tài) hoặc X (Xỉu). Dùng trong logic nội bộ.
+ */
+function normalizeResultInternal(val) {
     if (!val && val !== "") return "";
     const s = String(val).trim().toLowerCase();
     if (s === "tài" || s === "tai" || s === "taí" || s.includes("t")) return "T";
     if (s === "xỉu" || s === "xiu" || s === "xỉu " || s.includes("x")) return "X";
-    return ""; // Trả về rỗng nếu không phải Tài/Xỉu
+    return "";
+}
+
+/**
+ * Chuẩn hoá kết quả từ API sang "Tài" hoặc "Xỉu". Dùng cho API trả về và thống kê.
+ */
+function normalizeResultExternal(val) {
+    const internal = normalizeResultInternal(val);
+    if (internal === "T") return "Tài";
+    if (internal === "X") return "Xỉu";
+    return "";
 }
 
 // -------------------- THUẬT TOÁN SIÊU VIP PRO (Anti-Trend + Pattern) --------------------
+/**
+ * Trả về dự đoán ngoại bộ ("Tài" hoặc "Xỉu") và chuỗi pattern (T/X).
+ */
 function superVipProPredict(historyArray) {
     const recent = Array.isArray(historyArray) ? historyArray : [];
-    let duDoan = null; // T hoặc X
-    // Confidence Weight: 0 (cân bằng) -> 100 (rất T) hoặc -100 (rất X)
-    let confidenceWeight = 0; 
-
-    // 1. Logic Anti-Trend (15 phiên) - Lực đẩy chính
+    let duDoanInternal = null; // T hoặc X
+    
+    // 1. Logic Anti-Trend (15 phiên) - Core Logic
     const antiTrendData = recent.slice(0, RECENT_COUNT_ANTI_TREND);
     let countT = 0, countX = 0;
     antiTrendData.forEach(item => {
-        const kq = normalizeResult(item.ket_qua);
+        const kq = normalizeResultInternal(item.ket_qua);
         if (kq === "T") countT++;
         else if (kq === "X") countX++;
     });
 
     if (countT + countX > 0) {
-        const total = countT + countX;
-        const ratioT = countT / total; 
-        const ratioX = countX / total; 
-        
-        // Dự đoán ngược lại xu hướng (Anti-Trend)
-        if (ratioT > ratioX) { 
-            duDoan = "X"; // T nhiều -> dự đoán X
-        } else if (ratioX > ratioT) { 
-            duDoan = "T"; // X nhiều -> dự đoán T
+        if (countT > countX) { 
+            duDoanInternal = "X"; 
+        } else if (countX > countT) { 
+            duDoanInternal = "T"; 
         } else { 
-            duDoan = Math.random() < 0.5 ? "T" : "X"; // Cân bằng -> ngẫu nhiên
+            duDoanInternal = Math.random() < 0.5 ? "T" : "X"; 
         }
-
-        // Độ mạnh của Anti-Trend (từ 0 đến 50)
-        confidenceWeight += Math.abs(ratioT - ratioX) * 50; 
     } else {
-        // Fallback ngẫu nhiên nếu không đủ dữ liệu
-        duDoan = Math.random() < 0.5 ? "T" : "X";
+        duDoanInternal = Math.random() < 0.5 ? "T" : "X";
     }
     
-    // 2. Logic Pattern (10 phiên) - Lực điều chỉnh
+    // 2. Logic Pattern (10 phiên) - TẠO CHUỖI HIỂN THỊ
     const patternData = recent.slice(0, RECENT_COUNT_PATTERN);
-    if (patternData.length >= 3) {
-        // Chuỗi kết quả (ví dụ: "XTXTXTXXXX")
-        const patternString = patternData.map(item => normalizeResult(item.ket_qua)).join('');
-        
-        // Pattern Influence: -15 (ủng hộ X) đến 15 (ủng hộ T)
-        let patternInfluence = 0; 
-
-        // Phân tích 4 phiên gần nhất
-        const last4 = patternString.substring(0, 4);
-        if (last4.length === 4) {
-            // Cầu bệt 4: TTTT hoặc XXXX -> Pattern mạnh mẽ. Dự đoán tiếp tục bệt.
-            if (last4 === "TTTT") patternInfluence += 10; 
-            if (last4 === "XXXX") patternInfluence -= 10; 
-            
-            // Cầu 1-1: TXTX hoặc XTXT -> Dự đoán tiếp tục 1-1.
-            if (last4 === "TXTX") patternInfluence += 5; // Tiếp theo nên là T
-            if (last4 === "XTXT") patternInfluence -= 5; // Tiếp theo nên là X
-        }
-
-        // Tác động lên độ tin cậy của Anti-Trend
-        if (patternInfluence > 5 && duDoan === "T") { // Pattern mạnh mẽ T và Anti-trend ra T
-            confidenceWeight += 10; // Tăng cường T
-        } else if (patternInfluence < -5 && duDoan === "X") { // Pattern mạnh mẽ X và Anti-trend ra X
-            confidenceWeight += 10; // Tăng cường X
-        } else if (Math.abs(patternInfluence) > 5) { // Pattern mạnh mẽ, nhưng ngược Anti-Trend
-            confidenceWeight -= 10; // Giảm độ tin cậy Anti-Trend
-        }
-        
-        // Nếu dự đoán Anti-Trend trùng với Pattern vừa phải (ví dụ 1-1)
-        if (patternInfluence === 5 && duDoan === "T") {
-            confidenceWeight += 5;
-        } else if (patternInfluence === -5 && duDoan === "X") {
-            confidenceWeight += 5;
-        }
-    }
+    const chuoiPattern = patternData.map(item => normalizeResultInternal(item.ket_qua)).join('');
     
-    // 3. Tính toán Độ tin cậy cuối cùng (Kết hợp với ngẫu nhiên)
-    let confValue = CONF_MIN + confidenceWeight;
-    
-    // Thêm một phần ngẫu nhiên nhỏ (0% đến 5%) để tránh dự đoán cố định
-    confValue += Math.random() * 5; 
+    const duDoanExternal = duDoanInternal === "T" ? "Tài" : (duDoanInternal === "X" ? "Xỉu" : "Đang chờ");
 
-    // Đảm bảo nằm trong khoảng 50.0% - 90.0%
-    if (confValue > CONF_MAX) confValue = CONF_MAX;
-    if (confValue < CONF_MIN) confValue = CONF_MIN;
-    
-    const doTinCay = confValue.toFixed(1) + "%";
-
-    return { duDoan, doTinCay };
+    return { duDoan: duDoanExternal, chuoiPattern };
 }
 
 
@@ -176,32 +140,51 @@ function checkAndUpdateAccuracy(latest) {
     try {
         if (!latest || latest.phien === undefined) return;
 
-        // Nếu không có dự đoán trước đó -> không làm gì
+        // Nếu không có dự đoán nào đang chờ hoặc phiên chờ không xác định -> bỏ qua
         if (!cacheDuDoan || !cacheDuDoan.phienDuDoan) return;
 
         const predictedPhien = String(cacheDuDoan.phienDuDoan);
         const latestPhien = String(latest.phien);
 
-        // Khi phiên thực tế BẰNG phiên đã dự đoán trước đó -> đánh giá đúng/sai
+        // Phiên mới nhất (latestPhien) đã là phiên mà ta từng dự đoán (predictedPhien)
         if (predictedPhien === latestPhien) {
-            const actual = normalizeResult(latest.ket_qua); // T hoặc X
-            const predicted = cacheDuDoan.duDoan; // T hoặc X
+            const actual = normalizeResultExternal(latest.ket_qua); 
+            const predicted = cacheDuDoan.duDoan; 
             
-            // Chỉ cập nhật nếu kết quả thực tế là T hoặc X
-            if(actual === "T" || actual === "X") {
-                 if (actual === predicted) {
+            // Chỉ cập nhật nếu kết quả thực tế là Tài hoặc Xỉu
+            if(actual === "Tài" || actual === "Xỉu") {
+                // *** BƯỚC 1: CẬP NHẬT THỐNG KÊ ĐÚNG/SAI ***
+                if (actual === predicted) {
                     thongKeNgay.dung = (thongKeNgay.dung || 0) + 1;
                     console.log(`[${getTimeVN()}] -> Phiên ${latestPhien}: DỰ ĐOÁN ĐÚNG! (${predicted} vs ${actual}). Thống kê: ${thongKeNgay.dung}/${thongKeNgay.tong}`);
                 } else {
                     thongKeNgay.sai = (thongKeNgay.sai || 0) + 1;
                     console.log(`[${getTimeVN()}] -> Phiên ${latestPhien}: DỰ ĐOÁN SAI! (${predicted} vs ${actual}). Thống kê: ${thongKeNgay.dung}/${thongKeNgay.tong}`);
                 }
+
+                // *** BƯỚC 2: LƯU KẾT QUẢ THỰC TẾ VÀO CACHE TRƯỚC KHI DỌN DẸP ***
+                // Lưu kết quả thực tế vào bản ghi cache hiện tại
+                cacheDuDoan.ketQuaThucTe = actual; 
+            } else {
+                // Nếu kết quả không phải Tài/Xỉu (ví dụ: đang chờ), không làm gì.
+                return;
             }
 
-            // Xóa cache sau khi đã cập nhật (tránh cập nhật lại)
+            // *** BƯỚC 3: DỌN DẸP CACHE SAU KHI ĐÃ LƯU KẾT QUẢ VÀ CẬP NHẬT THỐNG KÊ ***
+            // Nếu bạn muốn lưu bản ghi đầy đủ, thì chỉ reset các trường để chuẩn bị cho phiên mới
+            // Nếu bạn muốn nó biến mất sau khi được tính, bạn có thể comment đoạn dưới
+            /*
             cacheDuDoan.phienDuDoan = null;
             cacheDuDoan.duDoan = "Đang chờ";
             cacheDuDoan.doTinCay = "0.0%";
+            cacheDuDoan.chuoiPattern = "";
+            */
+            
+            // Giữ lại kết quả đã lưu và reset các trường dự đoán để chuẩn bị cho phiên tiếp theo
+            cacheDuDoan.phienDuDoan = null;
+            cacheDuDoan.duDoan = "Đang chờ";
+            cacheDuDoan.doTinCay = "0.0%"; 
+            cacheDuDoan.chuoiPattern = "";
         }
 
     } catch (e) {
@@ -226,36 +209,42 @@ app.get("/api/lookup_predict", async (req, res) => {
 
         resetIfNewDayAndKeep();
 
-        // 1. Cập nhật thống kê nếu phiên cũ đã có kết quả
+        // 1. Cập nhật thống kê và lưu kết quả thực tế của phiên trước đó
         checkAndUpdateAccuracy(data[0]);
 
         // Tính dự đoán mới
-        const { duDoan, doTinCay } = superVipProPredict(data);
+        const { duDoan, chuoiPattern } = superVipProPredict(data); 
+        const doTinCay = randConfidence();
 
         // Xác định phiên dự đoán tiếp theo
         const phienGanNhat = (data[0] && data[0].phien !== undefined) ? String(data[0].phien) : "N/A";
         const phienDuDoan = (phienGanNhat !== "N/A") ? String(parseInt(phienGanNhat) + 1) : "N/A";
+        const ketQuaGanNhat = normalizeResultExternal(data[0].ket_qua); 
 
-        // 2. Trả về cache nếu phiên đã dự đoán (đảm bảo kết quả cố định trong 1 phiên)
+        // 2. Trả về cache nếu phiên đã dự đoán (đảm bảo kết quả không đổi trong 1 phiên)
         if (cacheDuDoan.phienDuDoan === phienDuDoan && phienDuDoan !== "N/A") {
             resetIfNewDayAndKeep();
             return res.json({
                 id: "VIP_PRO_001_CACHE",
                 time_vn: getTimeVN(),
                 phien_gan_nhat: phienGanNhat,
-                ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
+                ket_qua_gan_nhat: ketQuaGanNhat,
                 phien_du_doan: cacheDuDoan.phienDuDoan,
                 du_doan: cacheDuDoan.duDoan,
                 do_tin_cay: cacheDuDoan.doTinCay,
+                chuoi_pattern: cacheDuDoan.chuoiPattern, 
+                ket_qua_thuc_te_phien_truoc: cacheDuDoan.ketQuaThucTe, // NEW: Kết quả thực tế của phiên đã dự đoán gần nhất
                 thong_ke: thongKeNgay
             });
         }
-
+        
         // 3. Cập nhật cache và tăng tổng dự đoán (chỉ khi có dự đoán mới)
         cacheDuDoan = {
             phienDuDoan,
-            duDoan, // T hoặc X
-            doTinCay
+            duDoan, 
+            doTinCay,
+            chuoiPattern,
+            ketQuaThucTe: null // Reset kết quả thực tế cho phiên mới này
         };
 
         resetIfNewDayAndKeep();
@@ -268,10 +257,12 @@ app.get("/api/lookup_predict", async (req, res) => {
             id: "VIP_PRO_001",
             time_vn: getTimeVN(),
             phien_gan_nhat: phienGanNhat,
-            ket_qua_gan_nhat: normalizeResult(data[0].ket_qua),
+            ket_qua_gan_nhat: ketQuaGanNhat, 
             phien_du_doan: phienDuDoan,
-            du_doan: duDoan, // T hoặc X
+            du_doan: duDoan, 
             do_tin_cay: doTinCay,
+            chuoi_pattern: chuoiPattern,
+            ket_qua_thuc_te_phien_truoc: null, // Mới dự đoán nên chưa có kết quả thực tế
             thong_ke: thongKeNgay
         });
 
@@ -293,7 +284,7 @@ app.get("/api/thongke", (req, res) => {
         id: "VIP_PRO_001_STATS",
         time_vn: getTimeVN(),
         thong_ke: thongKeNgay,
-        cache: cacheDuDoan
+        cache: cacheDuDoan // Cache hiện tại đã bao gồm kết quả thực tế (nếu có)
     });
 });
 
@@ -315,4 +306,3 @@ app.get("/", (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 SIÊU VIP PRO server chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
 });
-          
