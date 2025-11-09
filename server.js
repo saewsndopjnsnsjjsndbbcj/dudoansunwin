@@ -1,18 +1,14 @@
-// server_ai_simple.js
-// Node.js + Express - AI Predictor Simple Form
-// Chạy: node server_ai_simple.js
-// Yêu cầu: node >=14, npm install express axios dotenv
+// server_simple_ai.js
+// Node.js + Express - Tài Xỉu Predictor Nội Bộ
+// Chạy: node server_simple_ai.js
+// Yêu cầu: npm install express axios
 
 const express = require('express');
 const axios = require('axios');
-const dotenv = require('dotenv');
-dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HISTORY_API_URL = 'https://sunwin-hcga.onrender.com/';
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
-const OPENROUTER_URL = 'https://api.openrouter.ai/v1/chat/completions';
 
 // -------------------- Helpers --------------------
 function getTimeVN() {
@@ -29,67 +25,40 @@ function normalizeResult(val) {
     return '';
 }
 
-// -------------------- AI Prediction --------------------
-async function aiPredict(sessionDetails) {
-    if (!OPENROUTER_API_KEY) {
-        return { prediction: 'Tài', confidence: 0.5, reason: '[AI] Chưa cấu hình API key' };
+function randConfidence(min = 50, max = 90) {
+    return (Math.random() * (max - min) + min).toFixed(1) + '%';
+}
+
+// -------------------- Dự đoán nội bộ --------------------
+function predictInternal(history) {
+    if (!history || history.length === 0) return { prediction: 'Tài', reason: 'Không có dữ liệu', confidence: 0.5 };
+
+    let demT = 0, demX = 0;
+    for (let i = 0; i < Math.min(history.length, 15); i++) {
+        const r = normalizeResult(history[i].ket_qua);
+        if (r === 'Tài') demT++;
+        else if (r === 'Xỉu') demX++;
     }
-    if (!sessionDetails || sessionDetails.length === 0) {
-        return { prediction: 'Tài', confidence: 0.5, reason: '[AI] Thiếu dữ liệu lịch sử' };
+
+    let prediction = 'Tài';
+    let reason = '';
+    let confidence = 0.5;
+
+    if (demT > demX) {
+        prediction = 'Tài';
+        reason = `Lịch sử ${demT} Tài > ${demX} Xỉu`;
+        confidence = 0.5 + (demT / (demT + demX)) * 0.5;
+    } else if (demX > demT) {
+        prediction = 'Xỉu';
+        reason = `Lịch sử ${demX} Xỉu > ${demT} Tài`;
+        confidence = 0.5 + (demX / (demT + demX)) * 0.5;
+    } else {
+        prediction = Math.random() > 0.5 ? 'Tài' : 'Xỉu';
+        reason = `Cân bằng trong lịch sử, chọn ngẫu nhiên`;
+        confidence = 0.5 + Math.random() * 0.4;
     }
 
-    try {
-        const historyData = sessionDetails.slice(0, 15)
-            .map((s, i) => `#${s.Phien}: ${normalizeResult(s.ket_qua)} (Tổng: ${s.Xuc_xac_1 + s.Xuc_xac_2 + s.Xuc_xac_3})`)
-            .join(' | ');
-
-        const prompt = `
-PHÂN TÍCH TÀI XỈU - TRẢ LỜI THEO ĐỊNH DẠNG: [DỰ ĐOÁN] [XÁC SUẤT%] [LÝ DO NGẮN]
-Lịch sử gần đây: ${historyData}
-Phân tích xu hướng và đưa ra dự đoán tiếp theo.
-Tổng điểm: 3-10=Xỉu, 11-17=cân bằng, 18=Tài.
-Định dạng bắt buộc: [Tài/Xỉu] [Xác suất 0-100%] [Lý do ngắn gọn]
-        `;
-
-        const response = await axios.post(OPENROUTER_URL, {
-            model: 'google/gemma-7b-it:free',
-            messages: [{ role: 'user', content: prompt }],
-            max_tokens: 80,
-            temperature: 0.3,
-            top_p: 0.9
-        }, {
-            headers: {
-                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
-                'Content-Type': 'application/json',
-            },
-            timeout: 10000
-        });
-
-        const aiText = response.data.choices[0].message.content.trim();
-        let prediction = 'Tài';
-        let confidence = 0.5;
-        let reason = aiText;
-
-        const taiMatch = aiText.match(/Tài.*?(\d+)%/i);
-        const xiuMatch = aiText.match(/Xỉu.*?(\d+)%/i);
-        if (taiMatch && xiuMatch) {
-            const taiProb = parseInt(taiMatch[1]);
-            const xiuProb = parseInt(xiuMatch[1]);
-            prediction = taiProb >= xiuProb ? 'Tài' : 'Xỉu';
-            confidence = Math.max(taiProb, xiuProb) / 100;
-        } else if (aiText.toLowerCase().includes('tài')) {
-            prediction = 'Tài';
-            confidence = 0.65;
-        } else if (aiText.toLowerCase().includes('xỉu')) {
-            prediction = 'Xỉu';
-            confidence = 0.65;
-        }
-
-        return { prediction, confidence, reason };
-
-    } catch (e) {
-        return { prediction: 'Tài', confidence: 0.5, reason: `[AI] Lỗi: ${e.message}` };
-    }
+    return { prediction, reason, confidence };
 }
 
 // -------------------- Endpoint --------------------
@@ -97,6 +66,7 @@ app.get('/api/lookup_predict', async (req, res) => {
     try {
         const response = await axios.get(HISTORY_API_URL, { timeout: 7000 });
         const data = Array.isArray(response.data) ? response.data : [response.data];
+
         if (!data || data.length === 0) {
             return res.json({ id: 'AI_001', error: 'Không có dữ liệu lịch sử', time_vn: getTimeVN() });
         }
@@ -107,7 +77,7 @@ app.get('/api/lookup_predict', async (req, res) => {
         const ketQua = normalizeResult(data[0].ket_qua);
         const phienSau = String(Number(phienTruoc) + 1);
 
-        const aiResult = await aiPredict(data);
+        const aiResult = predictInternal(data);
 
         return res.json({
             id: 'AI_001',
@@ -129,9 +99,9 @@ app.get('/api/lookup_predict', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.send('👑 AI Predictor Simple - Endpoint: /api/lookup_predict');
+    res.send('👑 AI Predictor Nội Bộ - Endpoint: /api/lookup_predict');
 });
 
 app.listen(PORT, () => {
-    console.log(`🚀 Server AI Simple chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
+    console.log(`🚀 Server chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
 });
