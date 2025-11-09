@@ -1,6 +1,6 @@
-// server_simple_ai.js
-// Node.js + Express - Tài Xỉu Predictor Nội Bộ
-// Chạy: node server_simple_ai.js
+// server_wormgpt_ai.js
+// Node.js + Express - Dudoan AI nội bộ (WormGPT style)
+// Chạy: node server_wormgpt_ai.js
 // Yêu cầu: npm install express axios
 
 const express = require('express');
@@ -29,36 +29,75 @@ function randConfidence(min = 50, max = 90) {
     return (Math.random() * (max - min) + min).toFixed(1) + '%';
 }
 
-// -------------------- Dự đoán nội bộ --------------------
-function predictInternal(history) {
+// -------------------- WormGPT-style prediction --------------------
+function predictAI(history) {
     if (!history || history.length === 0) return { prediction: 'Tài', reason: 'Không có dữ liệu', confidence: 0.5 };
 
+    const last15 = history.slice(0, 15).map(h => normalizeResult(h.ket_qua));
+
     let demT = 0, demX = 0;
-    for (let i = 0; i < Math.min(history.length, 15); i++) {
-        const r = normalizeResult(history[i].ket_qua);
+    for (const r of last15) {
         if (r === 'Tài') demT++;
         else if (r === 'Xỉu') demX++;
     }
 
-    let prediction = 'Tài';
-    let reason = '';
-    let confidence = 0.5;
-
-    if (demT > demX) {
-        prediction = 'Tài';
-        reason = `Lịch sử ${demT} Tài > ${demX} Xỉu`;
-        confidence = 0.5 + (demT / (demT + demX)) * 0.5;
-    } else if (demX > demT) {
-        prediction = 'Xỉu';
-        reason = `Lịch sử ${demX} Xỉu > ${demT} Tài`;
-        confidence = 0.5 + (demX / (demT + demX)) * 0.5;
-    } else {
-        prediction = Math.random() > 0.5 ? 'Tài' : 'Xỉu';
-        reason = `Cân bằng trong lịch sử, chọn ngẫu nhiên`;
-        confidence = 0.5 + Math.random() * 0.4;
+    // Tính streak cuối
+    let streak = 1;
+    for (let i = 1; i < last15.length; i++) {
+        if (last15[i] === last15[i - 1]) streak++;
+        else break;
     }
 
-    return { prediction, reason, confidence };
+    // Nhận diện bệt kép (2-2 cuối)
+    let betPattern = null;
+    if (last15.length >= 4) {
+        const groups = [];
+        let count = 1;
+        for (let i = 1; i < last15.length; i++) {
+            if (last15[i] === last15[i - 1]) count++;
+            else { groups.push({ kq: last15[i - 1], so: count }); count = 1; }
+        }
+        groups.push({ kq: last15[last15.length - 1], so: count });
+        if (groups.length >= 2) {
+            const last2 = groups.slice(-2);
+            if (last2[0].so >= 2 && last2[1].so >= 2 && last2[0].kq !== last2[1].kq) {
+                betPattern = last2[0].kq;
+            }
+        }
+    }
+
+    let prediction = '';
+    let reason = '';
+    let confidence = 0.6;
+
+    if (streak >= 6) {
+        prediction = last15[0] === 'Tài' ? 'Xỉu' : 'Tài';
+        reason = `Chuỗi liên tiếp ${streak} ${last15[0]} -> đảo chiều`;
+    } else if (streak >= 3 && streak <= 5) {
+        prediction = last15[0];
+        reason = `Chuỗi liên tiếp ${streak} ${last15[0]} -> theo cầu`;
+    } else if (betPattern) {
+        prediction = betPattern;
+        reason = `Bệt kép phát hiện -> theo cầu`;
+    } else if (demT > demX && (demT / (demT + demX)) >= 0.65) {
+        prediction = 'Tài';
+        reason = `Xu hướng Tài mạnh ${demT}T/${demX}X`;
+    } else if (demX > demT && (demX / (demT + demX)) >= 0.65) {
+        prediction = 'Xỉu';
+        reason = `Xu hướng Xỉu mạnh ${demX}X/${demT}T`;
+    } else if (last15[0] === last15[1] && last15[0] !== last15[2]) {
+        prediction = last15[0] === 'Tài' ? 'Xỉu' : 'Tài';
+        reason = `Mẫu lặp phát hiện -> đảo chiều`;
+    } else {
+        // fallback theo tỷ lệ
+        prediction = demT >= demX ? 'Tài' : 'Xỉu';
+        reason = `Fallback theo tỷ lệ Tài/Xỉu ${demT}/${demX}`;
+    }
+
+    // độ tin cậy theo tỷ lệ + ngẫu nhiên chút
+    confidence = Math.min(95, Math.max(50, Math.round(Math.max(demT, demX) / (demT + demX) * 100)));
+
+    return { prediction, reason, confidence: confidence / 100 };
 }
 
 // -------------------- Endpoint --------------------
@@ -77,7 +116,7 @@ app.get('/api/lookup_predict', async (req, res) => {
         const ketQua = normalizeResult(data[0].ket_qua);
         const phienSau = String(Number(phienTruoc) + 1);
 
-        const aiResult = predictInternal(data);
+        const aiResult = predictAI(data);
 
         return res.json({
             id: 'AI_001',
@@ -99,7 +138,7 @@ app.get('/api/lookup_predict', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.send('👑 AI Predictor Nội Bộ - Endpoint: /api/lookup_predict');
+    res.send('👑 AI Predictor WormGPT Nội Bộ - Endpoint: /api/lookup_predict');
 });
 
 app.listen(PORT, () => {
