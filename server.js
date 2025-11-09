@@ -12,7 +12,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Link API lịch sử của bạn
-const HISTORY_API_URL = process.env.HISTORY_API_URL || 'http://139.59.120.117:3001';
+const HISTORY_API_URL = process.env.HISTORY_API_URL'https://sunwin-hcga.onrender.com/';
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
@@ -112,3 +112,4 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 Server AI Only chạy cổng ${PORT}`);
 });
+
