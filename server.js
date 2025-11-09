@@ -1,6 +1,6 @@
-// server_wormgpt_ai.js
-// Node.js + Express - Dudoan AI nội bộ (WormGPT style)
-// Chạy: node server_wormgpt_ai.js
+// server_wormgpt_final.js
+// Node.js + Express - Dudoan AI WormGPT (phiên cuối chỉnh sửa)
+// Chạy: node server_wormgpt_final.js
 // Yêu cầu: npm install express axios
 
 const express = require('express');
@@ -25,13 +25,9 @@ function normalizeResult(val) {
     return '';
 }
 
-function randConfidence(min = 50, max = 90) {
-    return (Math.random() * (max - min) + min).toFixed(1) + '%';
-}
-
 // -------------------- WormGPT-style prediction --------------------
 function predictAI(history) {
-    if (!history || history.length === 0) return { prediction: 'Tài', reason: 'Không có dữ liệu', confidence: 0.5 };
+    if (!history || history.length === 0) return { prediction: 'Tài', reason: 'Không có dữ liệu' };
 
     const last15 = history.slice(0, 15).map(h => normalizeResult(h.ket_qua));
 
@@ -68,7 +64,6 @@ function predictAI(history) {
 
     let prediction = '';
     let reason = '';
-    let confidence = 0.6;
 
     if (streak >= 6) {
         prediction = last15[0] === 'Tài' ? 'Xỉu' : 'Tài';
@@ -94,10 +89,7 @@ function predictAI(history) {
         reason = `Fallback theo tỷ lệ Tài/Xỉu ${demT}/${demX}`;
     }
 
-    // độ tin cậy theo tỷ lệ + ngẫu nhiên chút
-    confidence = Math.min(95, Math.max(50, Math.round(Math.max(demT, demX) / (demT + demX) * 100)));
-
-    return { prediction, reason, confidence: confidence / 100 };
+    return { prediction, reason };
 }
 
 // -------------------- Endpoint --------------------
@@ -113,21 +105,19 @@ app.get('/api/lookup_predict', async (req, res) => {
         const phienTruoc = data[0].Phien;
         const xucXac = [data[0].Xuc_xac_1, data[0].Xuc_xac_2, data[0].Xuc_xac_3];
         const tongXucXac = xucXac.reduce((a, b) => a + b, 0);
-        const ketQua = normalizeResult(data[0].ket_qua);
         const phienSau = String(Number(phienTruoc) + 1);
 
         const aiResult = predictAI(data);
 
         return res.json({
-            id: 'AI_001',
+            id: '@Cskhtool0100000',
             phien_truoc: phienTruoc,
             xucxac: xucXac,
             tongxucxac: tongXucXac,
-            ketqua: ketQua,
+            ketqua: '',           // phiên trước bỏ trống
             phiensau: phienSau,
             dudoan: aiResult.prediction,
             giai_thich: aiResult.reason,
-            do_tin_cay: (aiResult.confidence * 100).toFixed(1) + '%',
             time_vn: getTimeVN()
         });
 
