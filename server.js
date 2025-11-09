@@ -1,125 +1,137 @@
-// server_ai_only.js
-// Node.js + Express - AI Prediction Only (Deepseek V3 via OpenRouter)
-// Chạy: node server_ai_only.js
-// Cần cài: npm install express axios dotenv
+// server_ai_simple.js
+// Node.js + Express - AI Predictor Simple Form
+// Chạy: node server_ai_simple.js
+// Yêu cầu: node >=14, npm install express axios dotenv
 
-const express = require("express");
-const axios = require("axios");
-const dotenv = require("dotenv");
+const express = require('express');
+const axios = require('axios');
+const dotenv = require('dotenv');
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const HISTORY_API_URL = 'https://sunwin-hcga.onrender.com/';
+const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
+const OPENROUTER_URL = 'https://api.openrouter.ai/v1/chat/completions';
 
-// ====== CẤU HÌNH ======
-const HISTORY_API_URL =
-  process.env.HISTORY_API_URL || "https://sunwin-hcga.onrender.com/";
-const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
-const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
-
-// ====== HÀM GỌI AI PHÂN TÍCH ======
-async function aiPredict(history) {
-  if (!OPENROUTER_API_KEY) {
-    return { prediction: "Tài", reason: "[AI] Chưa cấu hình API key" };
-  }
-
-  if (!Array.isArray(history) || history.length === 0) {
-    return { prediction: "Tài", reason: "[AI] Thiếu dữ liệu lịch sử" };
-  }
-
-  // Lấy 15 phiên gần nhất
-  const recent = history.slice(0, 15);
-  const historyText = recent
-    .map(
-      (s) =>
-        `#${s.Phien}: ${s.Xuc_xac_1}-${s.Xuc_xac_2}-${s.Xuc_xac_3} (Tổng: ${
-          s.Xuc_xac_1 + s.Xuc_xac_2 + s.Xuc_xac_3
-        }) = ${s.Ket_qua}`
-    )
-    .join(" | ");
-
-  const prompt = `
-  PHÂN TÍCH TÀI XỈU - HÃY TRẢ LỜI DẠNG: [Tài/Xỉu] [Lý do ngắn]
-  Lịch sử gần đây: ${historyText}
-  Dự đoán kết quả tiếp theo dựa theo xu hướng, streak, và pattern.
-  Chỉ trả lời đúng định dạng yêu cầu, ví dụ:
-  "Tài - do chuỗi Xỉu quá dài, khả năng đảo chiều"
-  `;
-
-  try {
-    const response = await axios.post(
-      OPENROUTER_URL,
-      {
-        model: "google/gemma-7b-it:free",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 60,
-        temperature: 0.4,
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "https://taixiu.ai",
-          "X-Title": "TaiXiu AI Predictor",
-        },
-        timeout: 15000,
-      }
-    );
-
-    const content = response.data?.choices?.[0]?.message?.content?.trim() || "";
-    const lower = content.toLowerCase();
-    let prediction = "Tài";
-    if (lower.includes("xỉu")) prediction = "Xỉu";
-    else if (lower.includes("tài")) prediction = "Tài";
-
-    return { prediction, reason: `[AI] ${content}` };
-  } catch (err) {
-    console.error("❌ Lỗi khi gọi AI:", err.message);
-    return { prediction: "Tài", reason: `[AI] Lỗi: ${err.message}` };
-  }
+// -------------------- Helpers --------------------
+function getTimeVN() {
+    return new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' });
 }
 
-// ====== API CHÍNH ======
-app.get("/api/lookup_predict", async (req, res) => {
-  try {
-    const resp = await axios.get(HISTORY_API_URL, { timeout: 7000 });
-    const data = Array.isArray(resp.data) ? resp.data : [resp.data];
-    if (!data || data.length === 0)
-      return res.json({ id: "AI_ONLY_ERR", error: "Không có dữ liệu lịch sử" });
+function normalizeResult(val) {
+    if (val === undefined || val === null) return '';
+    const s = String(val).trim().toLowerCase();
+    if (s.includes('t')) return 'Tài';
+    if (s.includes('x')) return 'Xỉu';
+    const n = Number(s);
+    if (!isNaN(n)) return n >= 11 ? 'Tài' : 'Xỉu';
+    return '';
+}
 
-    const last = data[0];
-    const phientruoc = last.Phien;
-    const phiensau = phientruoc + 1;
-    const xucxac = [last.Xuc_xac_1, last.Xuc_xac_2, last.Xuc_xac_3];
-    const tongxucxac = xucxac.reduce((a, b) => a + b, 0);
-    const ketqua = last.Ket_qua || (tongxucxac >= 11 ? "Tài" : "Xỉu");
+// -------------------- AI Prediction --------------------
+async function aiPredict(sessionDetails) {
+    if (!OPENROUTER_API_KEY) {
+        return { prediction: 'Tài', confidence: 0.5, reason: '[AI] Chưa cấu hình API key' };
+    }
+    if (!sessionDetails || sessionDetails.length === 0) {
+        return { prediction: 'Tài', confidence: 0.5, reason: '[AI] Thiếu dữ liệu lịch sử' };
+    }
 
-    const ai = await aiPredict(data);
+    try {
+        const historyData = sessionDetails.slice(0, 15)
+            .map((s, i) => `#${s.Phien}: ${normalizeResult(s.ket_qua)} (Tổng: ${s.Xuc_xac_1 + s.Xuc_xac_2 + s.Xuc_xac_3})`)
+            .join(' | ');
 
-    return res.json({
-      id: "AI_ONLY_001",
-      phientruoc,
-      xucxac,
-      tongxucxac,
-      ketqua,
-      phiensau,
-      dudoan: ai.prediction,
-      lydo: ai.reason,
-    });
-  } catch (e) {
-    console.error("❌ Lỗi lấy API lịch sử:", e.message);
-    res
-      .status(500)
-      .json({ id: "AI_ONLY_ERR", error: "Không lấy được dữ liệu lịch sử" });
-  }
+        const prompt = `
+PHÂN TÍCH TÀI XỈU - TRẢ LỜI THEO ĐỊNH DẠNG: [DỰ ĐOÁN] [XÁC SUẤT%] [LÝ DO NGẮN]
+Lịch sử gần đây: ${historyData}
+Phân tích xu hướng và đưa ra dự đoán tiếp theo.
+Tổng điểm: 3-10=Xỉu, 11-17=cân bằng, 18=Tài.
+Định dạng bắt buộc: [Tài/Xỉu] [Xác suất 0-100%] [Lý do ngắn gọn]
+        `;
+
+        const response = await axios.post(OPENROUTER_URL, {
+            model: 'google/gemma-7b-it:free',
+            messages: [{ role: 'user', content: prompt }],
+            max_tokens: 80,
+            temperature: 0.3,
+            top_p: 0.9
+        }, {
+            headers: {
+                'Authorization': `Bearer ${OPENROUTER_API_KEY}`,
+                'Content-Type': 'application/json',
+            },
+            timeout: 10000
+        });
+
+        const aiText = response.data.choices[0].message.content.trim();
+        let prediction = 'Tài';
+        let confidence = 0.5;
+        let reason = aiText;
+
+        const taiMatch = aiText.match(/Tài.*?(\d+)%/i);
+        const xiuMatch = aiText.match(/Xỉu.*?(\d+)%/i);
+        if (taiMatch && xiuMatch) {
+            const taiProb = parseInt(taiMatch[1]);
+            const xiuProb = parseInt(xiuMatch[1]);
+            prediction = taiProb >= xiuProb ? 'Tài' : 'Xỉu';
+            confidence = Math.max(taiProb, xiuProb) / 100;
+        } else if (aiText.toLowerCase().includes('tài')) {
+            prediction = 'Tài';
+            confidence = 0.65;
+        } else if (aiText.toLowerCase().includes('xỉu')) {
+            prediction = 'Xỉu';
+            confidence = 0.65;
+        }
+
+        return { prediction, confidence, reason };
+
+    } catch (e) {
+        return { prediction: 'Tài', confidence: 0.5, reason: `[AI] Lỗi: ${e.message}` };
+    }
+}
+
+// -------------------- Endpoint --------------------
+app.get('/api/lookup_predict', async (req, res) => {
+    try {
+        const response = await axios.get(HISTORY_API_URL, { timeout: 7000 });
+        const data = Array.isArray(response.data) ? response.data : [response.data];
+        if (!data || data.length === 0) {
+            return res.json({ id: 'AI_001', error: 'Không có dữ liệu lịch sử', time_vn: getTimeVN() });
+        }
+
+        const phienTruoc = data[0].Phien;
+        const xucXac = [data[0].Xuc_xac_1, data[0].Xuc_xac_2, data[0].Xuc_xac_3];
+        const tongXucXac = xucXac.reduce((a, b) => a + b, 0);
+        const ketQua = normalizeResult(data[0].ket_qua);
+        const phienSau = String(Number(phienTruoc) + 1);
+
+        const aiResult = await aiPredict(data);
+
+        return res.json({
+            id: 'AI_001',
+            phien_truoc: phienTruoc,
+            xucxac: xucXac,
+            tongxucxac: tongXucXac,
+            ketqua: ketQua,
+            phiensau: phienSau,
+            dudoan: aiResult.prediction,
+            giai_thich: aiResult.reason,
+            do_tin_cay: (aiResult.confidence * 100).toFixed(1) + '%',
+            time_vn: getTimeVN()
+        });
+
+    } catch (err) {
+        console.error('Lỗi khi lấy lịch sử:', err.message || err);
+        return res.status(500).json({ id: 'AI_ERR', error: 'Không lấy được dữ liệu lịch sử', time_vn: getTimeVN() });
+    }
 });
 
-// ====== TRANG GỐC ======
-app.get("/", (req, res) => {
-  res.send("🤖 AI ONLY PREDICTOR (Deepseek V3) - Endpoint: /api/lookup_predict");
+app.get('/', (req, res) => {
+    res.send('👑 AI Predictor Simple - Endpoint: /api/lookup_predict');
 });
 
-// ====== KHỞI ĐỘNG SERVER ======
 app.listen(PORT, () => {
-  console.log(`🚀 Server AI Only chạy cổng ${PORT}`);
+    console.log(`🚀 Server AI Simple chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
 });
