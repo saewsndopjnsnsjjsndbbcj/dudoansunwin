@@ -8,7 +8,7 @@ const axios = require('axios');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const HISTORY_API_URL = 'https://sunwin-hcga.onrender.com/';
+const HISTORY_API_URL = 'https://suncoc.onrender.com/latest';
 
 // -------------------- Helpers --------------------
 function getTimeVN() {
@@ -134,3 +134,4 @@ app.get('/', (req, res) => {
 app.listen(PORT, () => {
     console.log(`🚀 Server chạy cổng ${PORT} - Time VN: ${getTimeVN()}`);
 });
+
