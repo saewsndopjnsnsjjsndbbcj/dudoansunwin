@@ -6,7 +6,7 @@ const PORT = process.env.PORT || 3000;
 
 // Cache lịch sử
 const historicalDataCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
-const SUNWIN_API_URL = 'https://sunwinsaygex-8616.onrender.com/api/his';
+const SUNWIN_API_URL = 'https://lichsusunw-tztq.onrender.com/latest';
 
 // Hàm dự đoán VIP dựa trên 20 phiên gần nhất
 function predictTaiXiu(history) {
