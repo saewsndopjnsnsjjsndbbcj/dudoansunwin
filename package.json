@@ -20,7 +20,7 @@
     "express": "^4.19.2",
     "node-cache": "^5.1.2",
     "cors": "^2.8.5",
-    // THÊM DÒNG NÀY
-    "@tensorflow/tfjs-node": "^4.20.0" // Hoặc phiên bản mới nhất bạn đang dùng
+    // Đây là module bị thiếu gây ra lỗi "Cannot find module"
+    "@tensorflow/tfjs-node": "^4.20.0" 
   }
 }
