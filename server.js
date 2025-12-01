@@ -1,115 +1,167 @@
-const express = require('express');
-const axios = require('axios');
-const NodeCache = require('node-cache');
+// =====================================
+// SUNWIN VIP SERVER + SMART PREDICT
+// =====================================
+
+const express = require("express");
+const axios = require("axios");
+const cors = require("cors");
+const NodeCache = require("node-cache");
+
 const app = express();
+app.use(cors());
+app.use(express.json());
+
 const PORT = process.env.PORT || 3000;
 
-const SUNWIN_API_URL = 'https://lichsusunw-tztq.onrender.com/latest';
-const historicalDataCache = new NodeCache({ stdTTL: 600, checkperiod: 120 });
+const SUNWIN_API_URL =
+  process.env.SUNWIN_API_URL ||
+  "https://lichsh.onrender.com/latest";
 
-// Chuẩn hóa dữ liệu API
-function mapApiData(item) {
-    return {
-        phien: item.Phien,
-        xuc_xac_1: item.Xuc_xac_1,
-        xuc_xac_2: item.Xuc_xac_2,
-        xuc_xac_3: item.Xuc_xac_3,
-        tong: item.Tong,
-        ket_qua: item.Ket_qua
+const cache = new NodeCache({ stdTTL: 5 });
+
+// =====================================
+// THUẬT TOÁN SMART PREDICT (FULL CODE CỦA BẠN)
+// =====================================
+function smartPredict(history) {
+  const recent20 = history.slice(-20);
+  const recent10 = history.slice(-10);
+  const last = recent20[recent20.length - 1];
+  const lastResult = last.ket_qua.toUpperCase();
+
+  let taiSeq = 0,
+    xiuSeq = 0;
+  let maxTaiSeq = 0,
+    maxXiuSeq = 0;
+  let taiCount10 = 0,
+    xiuCount10 = 0;
+
+  // Đếm trong 20 phiên
+  for (let i = 0; i < recent20.length; i++) {
+    const k = recent20[i].ket_qua.toUpperCase();
+
+    if (k === "TÀI") {
+      taiSeq++;
+      xiuSeq = 0;
+    } else {
+      xiuSeq++;
+      taiSeq = 0;
+    }
+
+    maxTaiSeq = Math.max(maxTaiSeq, taiSeq);
+    maxXiuSeq = Math.max(maxXiuSeq, xiuSeq);
+  }
+
+  // Đếm 10 phiên gần nhất
+  recent10.forEach((i) => {
+    if (i.ket_qua.toUpperCase() === "TÀI") taiCount10++;
+    else xiuCount10++;
+  });
+
+  // Dice Bias
+  const diceBiasTai = recent10.filter((o) => o.tong >= 12).length;
+  const diceBiasXiu = recent10.filter((o) => o.tong <= 10).length;
+
+  // Rolling trend (trung bình tổng của 10 phiên)
+  const avg10 = recent10.reduce((s, o) => s + o.tong, 0) / 10;
+  const rollingTai = avg10 >= 11 ? 1 : 0;
+  const rollingXiu = avg10 <= 10 ? 1 : 0;
+
+  // Score
+  const scoreTai =
+    maxXiuSeq * 4.5 +
+    xiuCount10 * 1.5 +
+    diceBiasTai * 3 +
+    (lastResult === "XỈU" ? 5 : 0) +
+    rollingTai * 4 +
+    Math.random() * 2;
+
+  const scoreXiu =
+    maxTaiSeq * 4.5 +
+    taiCount10 * 1.5 +
+    diceBiasXiu * 3 +
+    (lastResult === "TÀI" ? 5 : 0) +
+    rollingXiu * 4 +
+    Math.random() * 2;
+
+  const du_doan = scoreTai > scoreXiu ? "Tài" : "Xỉu";
+  const do_tin_cay = Math.min(
+    95,
+    Math.max(68, Math.abs(scoreTai - scoreXiu) * 4 + 60)
+  );
+
+  return {
+    du_doan,
+    do_tin_cay: do_tin_cay.toFixed(2) + "%",
+    pattern: `Chuỗi Tài:${maxTaiSeq} | Chuỗi Xỉu:${maxXiuSeq}`,
+    chi_tiet: {
+      scoreTai,
+      scoreXiu,
+      dien_bien: {
+        tai_trong_10: taiCount10,
+        xiu_trong_10: xiuCount10,
+        dice_bias_tai: diceBiasTai,
+        dice_bias_xiu: diceBiasXiu,
+        rolling_avg: avg10,
+      },
+    },
+  };
+}
+
+// =====================================
+// API CHÍNH
+// =====================================
+app.get("/api/taixiu", async (req, res) => {
+  try {
+    const cached = cache.get("history");
+    if (cached) return res.json(cached);
+
+    const response = await axios.get(SUNWIN_API_URL);
+    const data = response.data;
+
+    if (!data?.data || data.data.length === 0) {
+      return res.json({ error: "Không lấy được dữ liệu API" });
+    }
+
+    const history = data.data;
+
+    // Lấy phiên gần nhất
+    const current = history[0];
+
+    // Tính dự đoán bằng smartPredict
+    const predict = smartPredict(history);
+
+    // Xuất đúng FORM bạn yêu cầu
+    const result = {
+      id: "@Cskhtoolhehe",
+      phien_truoc: {
+        phien: current.phien,
+        xuc_xac_1: current.x1,
+        xuc_xac_2: current.x2,
+        xuc_xac_3: current.x3,
+        tong: current.tong,
+        ket_qua: current.tong >= 11 ? "Tài" : "Xỉu",
+      },
+      phien_sau: {
+        phien: current.phien + 1, // phiên sau b yêu cầu phải có
+        du_doan: predict.du_doan,
+        do_tin_cay: predict.do_tin_cay,
+        pattern: predict.pattern,
+        chi_tiet: predict.chi_tiet,
+      },
     };
-}
 
-// Dự đoán VIP dựa trên 20 phiên gần nhất
-function predictTaiXiu(history) {
-    if (!history || history.length === 0) {
-        return {
-            du_doan: "Chờ thêm dữ liệu",
-            do_tin_cay: 10,
-            giai_thich: "Chưa có dữ liệu để phân tích.",
-            pattern: "Thiếu dữ liệu"
-        };
-    }
+    cache.set("history", result);
 
-    const recent = history.slice(-20);
-    const last = recent[recent.length - 1];
-    const lastResult = last.ket_qua.toUpperCase();
-    let taiCount = 0, xiuCount = 0, taiSeq = 0, xiuSeq = 0, maxTaiSeq = 0, maxXiuSeq = 0;
-
-    for (let i = 0; i < recent.length; i++) {
-        const r = recent[i].ket_qua.toUpperCase();
-        if (r === 'TÀI') { taiCount++; taiSeq++; xiuSeq = 0; }
-        else { xiuCount++; xiuSeq++; taiSeq = 0; }
-        maxTaiSeq = Math.max(maxTaiSeq, taiSeq);
-        maxXiuSeq = Math.max(maxXiuSeq, xiuSeq);
-    }
-
-    // Chuỗi cuối
-    taiSeq = 0; xiuSeq = 0;
-    for (let i = recent.length - 1; i >= 0; i--) {
-        const r = recent[i].ket_qua.toUpperCase();
-        if (r === lastResult) { if (r === 'TÀI') taiSeq++; else xiuSeq++; }
-        else break;
-    }
-
-    let du_doan = "Xỉu", do_tin_cay = 55, giai_thich = "Đang phân tích mẫu hình...", pattern = "Chưa rõ";
-
-    if (taiSeq >= 5) { du_doan = "Xỉu"; do_tin_cay = Math.min(95, 65 + taiSeq * 4); giai_thich = `Cầu bệt Tài dài ${taiSeq} phiên, khả năng cao bẻ cầu về Xỉu!`; pattern = `Cầu bệt Tài`; }
-    else if (xiuSeq >= 5) { du_doan = "Tài"; do_tin_cay = Math.min(95, 65 + xiuSeq * 4); giai_thich = `Cầu bệt Xỉu dài ${xiuSeq} phiên, khả năng cao bẻ cầu về Tài!`; pattern = `Cầu bệt Xỉu`; }
-    else if (recent.length >= 6 &&
-        recent[recent.length - 1].ket_qua.toUpperCase() !== recent[recent.length - 2].ket_qua.toUpperCase() &&
-        recent[recent.length - 2].ket_qua.toUpperCase() !== recent[recent.length - 3].ket_qua.toUpperCase() &&
-        recent[recent.length - 3].ket_qua.toUpperCase() !== recent[recent.length - 4].ket_qua.toUpperCase()
-    ) {
-        du_doan = (lastResult === 'TÀI') ? "Xỉu" : "Tài"; do_tin_cay = 90; giai_thich = "Mẫu hình cầu đảo liên tục."; pattern = "Cầu đảo 1-1-1-1";
-    }
-    else if (recent.length >= 4 &&
-        recent[recent.length - 1].ket_qua.toUpperCase() === recent[recent.length - 2].ket_qua.toUpperCase() &&
-        recent[recent.length - 3].ket_qua.toUpperCase() === recent[recent.length - 4].ket_qua.toUpperCase() &&
-        recent[recent.length - 1].ket_qua.toUpperCase() !== recent[recent.length - 3].ket_qua.toUpperCase()
-    ) {
-        du_doan = (lastResult === 'TÀI') ? "Xỉu" : "Tài"; do_tin_cay = 88; giai_thich = "Mẫu hình cầu 2-2 đang hình thành."; pattern = "Cầu 2-2";
-    }
-    else if (taiCount > xiuCount + 3) { du_doan = "Xỉu"; do_tin_cay = 70; giai_thich = `Tài áp đảo (${taiCount}T/${xiuCount}X), dự đoán cân bằng lại về Xỉu.`; pattern = "Tỷ lệ Tài cao"; }
-    else if (xiuCount > taiCount + 3) { du_doan = "Tài"; do_tin_cay = 70; giai_thich = `Xỉu áp đảo (${xiuCount}X/${taiCount}T), dự đoán cân bằng lại về Tài.`; pattern = "Tỷ lệ Xỉu cao"; }
-    else if (maxTaiSeq <= 2 && maxXiuSeq <= 2) { du_doan = (lastResult === 'TÀI') ? "Xỉu" : "Tài"; do_tin_cay = 60; giai_thich = "Thị trường lắc/xen kẽ."; pattern = "Lắc/xen kẽ"; }
-    else { du_doan = (lastResult === 'TÀI') ? "Xỉu" : "Tài"; do_tin_cay = 55; giai_thich = "Không có mẫu hình rõ ràng, dự đoán theo phiên cuối."; pattern = "Cơ bản"; }
-
-    do_tin_cay = Math.max(50, Math.min(99.99, do_tin_cay));
-    return { du_doan, do_tin_cay, giai_thich, pattern };
-}
-
-// Endpoint VIP
-app.get('/api/taixiu', async (req, res) => {
-    let historicalData = historicalDataCache.get("full_history") || [];
-
-    try {
-        const response = await axios.get(SUNWIN_API_URL);
-        const currentData = mapApiData(response.data);
-
-        if (!historicalData.some(item => item.phien === currentData.phien)) {
-            historicalData.push(currentData);
-            if (historicalData.length > 100) historicalData = historicalData.slice(-100);
-            historicalDataCache.set("full_history", historicalData);
-        }
-
-        const prediction = predictTaiXiu(historicalData);
-
-        res.json({
-            id: "@Cskhtool0100000",
-            phien_truoc: currentData,
-            phien_sau: prediction
-        });
-
-    } catch (error) {
-        res.json({
-            id: "@Cskhtool0100000",
-            error: "Không thể lấy dữ liệu hoặc dự đoán.",
-            du_doan: "Không thể dự đoán",
-            do_tin_cay: 0,
-            giai_thich: error.message,
-            pattern: "Lỗi"
-        });
-    }
+    res.json(result);
+  } catch (err) {
+    console.error(err);
+    res.json({ error: "Lỗi API" });
+  }
 });
 
-app.listen(PORT, () => console.log(`Server chạy cổng ${PORT}`));
+// =====================================
+// START SERVER
+// =====================================
+app.listen(PORT, () =>
+  console.log("SMART PREDICT SERVER đang chạy tại port", PORT)
+);
