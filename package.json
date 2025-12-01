@@ -1,23 +1,15 @@
 {
-  "name": "sunwin-api-prime8",
+  "name": "sunwin-vip-server",
   "version": "1.0.0",
-  "description": "API for Tai Xiu prediction based on historical data.",
   "main": "server.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
-  "keywords": [
-    "taixiu",
-    "api",
-    "prediction",
-    "node.js",
-    "render"
-  ],
-  "author": "Vanw Nhật",
-  "license": "MIT",
   "dependencies": {
-    "axios": "^1.7.2",
-    "express": "^4.19.2",
-    "node-cache": "^5.1.2"
+    "express": "^4.18.2",
+    "axios": "^1.6.2",
+    "node-cache": "^5.1.2",
+    "cors": "^2.8.5"
   }
 }
