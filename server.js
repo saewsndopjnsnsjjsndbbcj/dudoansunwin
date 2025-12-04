@@ -1,5 +1,5 @@
 // ==========================
-//  SUNWIN VIP PREDICT SERVER (1 phiên)
+//  SUNWIN VIP PREDICT SERVER (1 phiên) - FIXED
 // ==========================
 
 const express = require("express");
@@ -11,28 +11,49 @@ const app = express();
 const cache = new NodeCache({ stdTTL: 5 });
 app.use(cors());
 
-const HISTORY_API = process.env.HISTORY || "https://lichsh.onrender.com/latest";
+const HISTORY_API = process.env.HISTORY || "https://jsshbs.onrender.com/latest";
 
 // ==========================
-// Chuẩn hóa dữ liệu API
+// Chuẩn hóa dữ liệu API (ép kiểu số an toàn)
 // ==========================
+function toInt(v, fallback = 0) {
+  if (v === undefined || v === null) return fallback;
+  const n = Number(v);
+  return Number.isNaN(n) ? fallback : Math.floor(n);
+}
+
 function normalizeData(item) {
-    return {
-        phien: item.phien || item.Phien || 0,
-        xuc_xac_1: item.xuc_xac_1 || item.Xuc_xac_1 || 0,
-        xuc_xac_2: item.xuc_xac_2 || item.Xuc_xac_2 || 0,
-        xuc_xac_3: item.xuc_xac_3 || item.Xuc_xac_3 || 0,
-        tong: item.tong || item.Tong || 0,
-        ket_qua: item.ket_qua || item.Ket_qua || "Không rõ"
-    };
+  // một số API có thể trả với chữ hoa/chữ thường khác nhau
+  const phienRaw = item.phien ?? item.Phien ?? item.PhienNumber ?? item.Phien_id ?? 0;
+  const x1 = item.xuc_xac_1 ?? item.Xuc_xac_1 ?? item.Xucxac1 ?? 0;
+  const x2 = item.xuc_xac_2 ?? item.Xuc_xac_2 ?? item.Xucxac2 ?? 0;
+  const x3 = item.xuc_xac_3 ?? item.Xuc_xac_3 ?? item.Xucxac3 ?? 0;
+  const tongRaw = item.tong ?? item.Tong ?? item.TongSo ?? 0;
+  const ketquaRaw = item.ket_qua ?? item.Ket_qua ?? item.KetQua ?? item.Ket_qua_text ?? "Không rõ";
+
+  const phien = toInt(phienRaw, 0);
+  const xuc_xac_1 = toInt(x1, 0);
+  const xuc_xac_2 = toInt(x2, 0);
+  const xuc_xac_3 = toInt(x3, 0);
+  const tong = toInt(tongRaw, xuc_xac_1 + xuc_xac_2 + xuc_xac_3);
+
+  return {
+    phien,
+    xuc_xac_1,
+    xuc_xac_2,
+    xuc_xac_3,
+    tong,
+    ket_qua: String(ketquaRaw)
+  };
 }
 
 // ==========================
 // Thuật toán SIÊU VIP (1 phiên)
+// (giữ nguyên logic của bạn, chỉ đảm bảo đầu vào đúng kiểu)
 // ==========================
 function smartPredict(history) {
     const last = history[history.length - 1];
-    const lastResult = last.ket_qua.toUpperCase();
+    const lastResult = String(last.ket_qua || "").toUpperCase();
     const tong = last.tong;
 
     // Giả lập max chuỗi như dùng 20 phiên
@@ -103,13 +124,20 @@ app.get("/api/taixiu", async (req, res) => {
         if (!response.data) return res.json({ error: "Không lấy được dữ liệu API" });
 
         const raw = response.data;
-        const history = Array.isArray(raw) ? raw.map(normalizeData) : [normalizeData(raw)];
+        // raw có thể là mảng hoặc object
+        const items = Array.isArray(raw) ? raw : [raw];
+        const history = items.map(normalizeData).filter(it => it.phien > 0);
 
         if (history.length < 1) return res.json({ error: "Dữ liệu quá ít" });
 
-        const phienTruoc = history[history.length - 1];
+        // TÌM phiên có phien LỚN NHẤT (phiên mới nhất)
+        const phienTruoc = history.reduce((max, cur) => (cur.phien > max.phien ? cur : max), history[0]);
+
+        // đảm bảo là number
+        const phienSauNumber = Number(phienTruoc.phien) + 1;
+
+        // tạo predict dựa trên toàn bộ history (nếu cần)
         const predict = smartPredict(history);
-        const phienSauNumber = phienTruoc.phien + 1;
 
         const result = {
             id: "@Cskhtool0100000",
@@ -121,7 +149,7 @@ app.get("/api/taixiu", async (req, res) => {
         return res.json(result);
 
     } catch (err) {
-        console.error("Lỗi:", err.message);
+        console.error("Lỗi:", err && err.message ? err.message : err);
         return res.json({ error: "Không lấy được dữ liệu API" });
     }
 });
